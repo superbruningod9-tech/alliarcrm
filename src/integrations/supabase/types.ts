@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_user_connections: {
+        Row: {
+          account_email: string | null
+          connection_key_ciphertext: string
+          connector_id: string
+          created_at: string
+          folder_id: string | null
+          id: string
+          owner_id: string
+          owner_kind: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email?: string | null
+          connection_key_ciphertext: string
+          connector_id: string
+          created_at?: string
+          folder_id?: string | null
+          id?: string
+          owner_id: string
+          owner_kind?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_email?: string | null
+          connection_key_ciphertext?: string
+          connector_id?: string
+          created_at?: string
+          folder_id?: string | null
+          id?: string
+          owner_id?: string
+          owner_kind?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       b2b_connections: {
         Row: {
           connected_at: string

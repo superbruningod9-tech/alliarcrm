@@ -31,12 +31,12 @@ export function DriveConnect() {
   const [s, setS] = useState<Status | null>(null);
   const [busy, setBusy] = useState<Scope | null>(null);
   const load = useCallback(() => { if (tenantId) status({ data: { tenantId } }).then(setS).catch((e) => toast.error(e.message)); }, [tenantId, status]);
-  useEffect(load, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const connect = async (scope: Scope) => {
     if (!tenantId) return;
     const popup = window.open("", "lovable-oauth", "width=600,height=720");
-    if (!popup) return toast.error("Pop-up bloqueado. Permita pop-ups e tente de novo.");
+    if (!popup) { toast.error("Pop-up bloqueado. Permita pop-ups e tente de novo."); return; }
     setBusy(scope);
     try {
       const { authorizationUrl } = await start({ data: { tenantId, scope } });

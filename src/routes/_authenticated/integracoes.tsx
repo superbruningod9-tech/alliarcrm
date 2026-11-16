@@ -40,6 +40,7 @@ import {
 import { PageHeader } from "@/components/alliar/Shell";
 import { B2BSettings } from "@/components/alliar/B2BSettings";
 import { B2BDashboard } from "@/components/alliar/B2BDashboard";
+import { DriveConnect } from "@/components/alliar/DriveConnect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -183,10 +184,14 @@ function IntegracoesPage() {
       </PageHeader>
 
       <Tabs defaultValue="pagamentos" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/50 p-1 sm:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/50 p-1 sm:grid-cols-6">
           <TabsTrigger value="b2b" className="min-w-0 text-xs">
             <Layers className="mr-1.5 size-3.5" />
             B2B & CSV
+          </TabsTrigger>
+          <TabsTrigger value="drive" className="text-xs">
+            <Globe className="mr-1.5 size-3.5" />
+            Google Drive
           </TabsTrigger>
           <TabsTrigger value="pagamentos" className="text-xs">
             <CreditCard className="mr-1.5 size-3.5" />
@@ -205,6 +210,10 @@ function IntegracoesPage() {
             Histórico ({logs.length})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="drive">
+          <DriveConnect />
+        </TabsContent>
 
         <TabsContent value="b2b" className="space-y-6">
           <B2BSettings />

@@ -40,3 +40,4 @@ use the editor.
 - B2B uses authenticated server functions and an allowlisted provider registry; credentials are encrypted server-only rows keyed by user, tenant and provider, preventing cross-account billing.
 - B2B CSV imports run through a transactional SQL function with tenant-level deduplication; provider calls execute bounded batches within the request, with durable job states and no background in-memory queue.
 - Integrations embeds the existing B2B settings and dashboard rather than duplicating data flows, so connection isolation and CSV deduplication remain consistent across screens.
+- Google Drive uses the App User Connector with encrypted keys in server-only app_user_connections (owner_kind user|tenant); uploads prefer the seller's own Drive and fall back to the company's admin-managed shared account, so large companies can centralize files.

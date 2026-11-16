@@ -36,6 +36,7 @@ import { Route as AuthenticatedAdminDashboardRouteImport } from './routes/_authe
 import { Route as ApiB2bEnrichRouteImport } from './routes/api/b2b/enrich'
 import { Route as ApiB2bJobsRouteImport } from './routes/api/b2b/jobs'
 import { Route as ApiB2bMetricsRouteImport } from './routes/api/b2b/metrics'
+import { Route as ApiOauthGoogleReturnRouteImport } from './routes/api/oauth/google/return'
 import { Route as ApiPublicB2bEnrichRouteImport } from './routes/api/public/b2b/enrich'
 import { Route as ApiPublicB2bJobsRouteImport } from './routes/api/public/b2b/jobs'
 import { Route as ApiPublicB2bMetricsRouteImport } from './routes/api/public/b2b/metrics'
@@ -180,6 +181,11 @@ const ApiB2bMetricsRoute = ApiB2bMetricsRouteImport.update({
   path: '/api/b2b/metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiOauthGoogleReturnRoute = ApiOauthGoogleReturnRouteImport.update({
+  id: '/api/oauth/google/return',
+  path: '/api/oauth/google/return',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicB2bEnrichRoute = ApiPublicB2bEnrichRouteImport.update({
   id: '/api/public/b2b/enrich',
   path: '/api/public/b2b/enrich',
@@ -241,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/api/b2b/enrich': typeof ApiB2bEnrichRoute
   '/api/b2b/jobs': typeof ApiB2bJobsRoute
   '/api/b2b/metrics': typeof ApiB2bMetricsRoute
+  '/api/oauth/google/return': typeof ApiOauthGoogleReturnRoute
   '/api/public/b2b/enrich': typeof ApiPublicB2bEnrichRoute
   '/api/public/b2b/jobs': typeof ApiPublicB2bJobsRoute
   '/api/public/b2b/metrics': typeof ApiPublicB2bMetricsRoute
@@ -275,6 +282,7 @@ export interface FileRoutesByTo {
   '/api/b2b/enrich': typeof ApiB2bEnrichRoute
   '/api/b2b/jobs': typeof ApiB2bJobsRoute
   '/api/b2b/metrics': typeof ApiB2bMetricsRoute
+  '/api/oauth/google/return': typeof ApiOauthGoogleReturnRoute
   '/api/public/b2b/enrich': typeof ApiPublicB2bEnrichRoute
   '/api/public/b2b/jobs': typeof ApiPublicB2bJobsRoute
   '/api/public/b2b/metrics': typeof ApiPublicB2bMetricsRoute
@@ -311,6 +319,7 @@ export interface FileRoutesById {
   '/api/b2b/enrich': typeof ApiB2bEnrichRoute
   '/api/b2b/jobs': typeof ApiB2bJobsRoute
   '/api/b2b/metrics': typeof ApiB2bMetricsRoute
+  '/api/oauth/google/return': typeof ApiOauthGoogleReturnRoute
   '/api/public/b2b/enrich': typeof ApiPublicB2bEnrichRoute
   '/api/public/b2b/jobs': typeof ApiPublicB2bJobsRoute
   '/api/public/b2b/metrics': typeof ApiPublicB2bMetricsRoute
@@ -347,6 +356,7 @@ export interface FileRouteTypes {
     | '/api/b2b/enrich'
     | '/api/b2b/jobs'
     | '/api/b2b/metrics'
+    | '/api/oauth/google/return'
     | '/api/public/b2b/enrich'
     | '/api/public/b2b/jobs'
     | '/api/public/b2b/metrics'
@@ -381,6 +391,7 @@ export interface FileRouteTypes {
     | '/api/b2b/enrich'
     | '/api/b2b/jobs'
     | '/api/b2b/metrics'
+    | '/api/oauth/google/return'
     | '/api/public/b2b/enrich'
     | '/api/public/b2b/jobs'
     | '/api/public/b2b/metrics'
@@ -416,6 +427,7 @@ export interface FileRouteTypes {
     | '/api/b2b/enrich'
     | '/api/b2b/jobs'
     | '/api/b2b/metrics'
+    | '/api/oauth/google/return'
     | '/api/public/b2b/enrich'
     | '/api/public/b2b/jobs'
     | '/api/public/b2b/metrics'
@@ -434,6 +446,7 @@ export interface RootRouteChildren {
   ApiB2bEnrichRoute: typeof ApiB2bEnrichRoute
   ApiB2bJobsRoute: typeof ApiB2bJobsRoute
   ApiB2bMetricsRoute: typeof ApiB2bMetricsRoute
+  ApiOauthGoogleReturnRoute: typeof ApiOauthGoogleReturnRoute
   ApiPublicB2bEnrichRoute: typeof ApiPublicB2bEnrichRoute
   ApiPublicB2bJobsRoute: typeof ApiPublicB2bJobsRoute
   ApiPublicB2bMetricsRoute: typeof ApiPublicB2bMetricsRoute
@@ -633,6 +646,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiB2bMetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/oauth/google/return': {
+      id: '/api/oauth/google/return'
+      path: '/api/oauth/google/return'
+      fullPath: '/api/oauth/google/return'
+      preLoaderRoute: typeof ApiOauthGoogleReturnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/b2b/enrich': {
       id: '/api/public/b2b/enrich'
       path: '/api/public/b2b/enrich'
@@ -733,6 +753,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiB2bEnrichRoute: ApiB2bEnrichRoute,
   ApiB2bJobsRoute: ApiB2bJobsRoute,
   ApiB2bMetricsRoute: ApiB2bMetricsRoute,
+  ApiOauthGoogleReturnRoute: ApiOauthGoogleReturnRoute,
   ApiPublicB2bEnrichRoute: ApiPublicB2bEnrichRoute,
   ApiPublicB2bJobsRoute: ApiPublicB2bJobsRoute,
   ApiPublicB2bMetricsRoute: ApiPublicB2bMetricsRoute,

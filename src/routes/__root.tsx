@@ -16,7 +16,10 @@ import { AuthProvider } from "../lib/auth";
 
 import { Toaster } from "../components/ui/sonner";
 
+import { useAuth } from "@/lib/auth";
+
 function NotFoundComponent() {
+  const { user } = useAuth();
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -27,7 +30,7 @@ function NotFoundComponent() {
         </p>
         <div className="mt-6">
           <Link
-            to="/"
+            to={user ? "/dashboard" : "/"}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Go home
@@ -37,6 +40,7 @@ function NotFoundComponent() {
     </div>
   );
 }
+
 
 function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
@@ -64,12 +68,12 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
           >
             Try again
           </button>
-          <a
-            href="/"
+          <Link
+            to={user ? "/dashboard" : "/"}
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             Go home
-          </a>
+          </Link>
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './auth';
 import { contactSchema } from './crm-schemas';
 import { beep } from './rules';
+import { applyThemePalette, type ColorPalette, getActivePalette } from './theme';
 import {
   type SupportTicket,
   type Referral,
@@ -45,6 +46,7 @@ export type Lead = {
   priority: 'alta' | 'média' | 'baixa';
   owner: string;
   ownerId?: string;
+  ownerAvatar?: string;
   lastContact: string;
   createdAt: string;
   updatedAt: string;
@@ -52,7 +54,13 @@ export type Lead = {
   timeline: Event[];
 };
 
-type Settings = { structure: 'solo' | 'equipe'; view: 'focado' | 'completo'; theme: 'dark' | 'light'; tourDone: boolean };
+type Settings = {
+  structure: 'solo' | 'equipe';
+  view: 'focado' | 'completo';
+  theme: 'dark' | 'light';
+  palette: ColorPalette;
+  tourDone: boolean;
+};
 
 function useStateData() {
   const { user } = useAuth();
@@ -99,10 +107,18 @@ function useStateData() {
         supabase.from('user_roles').select('*').eq('tenant_id', active),
         supabase.from('pipeline_stages').select('*').eq('tenant_id', active).order('position'),
         supabase.rpc('tenant_members', { t: active }),
+        supabase.from('profiles').select('id,display_name,avatar_url').eq('id', user.id).maybeSingle(),
+        supabase.from('profiles').select('id,display_name,avatar_url'),
       ]);
       for (const r of results) if (r.error) throw r.error;
-      const [ls, es, settings, prefs, roles, stages, mem] = results;
-      const members = (mem.data ?? []) as { user_id: string; role: string; display_name: string; email: string }[];
+      const [ls, es, settings, prefs, roles, stages, mem, myProfile, allProfiles] = results;
+      const profilesMap = new Map((allProfiles.data ?? []).map((p) => [p.id, p]));
+
+      const members = ((mem.data ?? []) as { user_id: string; role: string; display_name: string; email: string }[]).map((m) => ({
+        ...m,
+        avatar_url: profilesMap.get(m.user_id)?.avatar_url || '',
+      }));
+
       const nameOf = (id: string) => {
         const m = members.find((x) => x.user_id === id);
         return m ? m.display_name || m.email || 'Membro' : 'Membro';
@@ -110,6 +126,7 @@ function useStateData() {
 
       return {
         members,
+        myProfile: myProfile.data,
         leads: (ls.data ?? []).map((l) => ({
           id: l.id,
           contactId: l.contact_id,
@@ -123,6 +140,7 @@ function useStateData() {
           priority: l.priority as Lead['priority'],
           owner: l.owner_id === user.id ? 'Você' : nameOf(l.owner_id),
           ownerId: l.owner_id,
+          ownerAvatar: l.owner_id === user.id ? (myProfile.data?.avatar_url || '') : (profilesMap.get(l.owner_id)?.avatar_url || ''),
           lastContact: new Date(l.updated_at).toLocaleDateString('pt-BR'),
           createdAt: l.created_at,
           updatedAt: l.updated_at,
@@ -144,16 +162,18 @@ function useStateData() {
   });
 
   const isAdmin = state.data?.roles.some((r) => r.user_id === user?.id && r.role === 'admin') ?? false;
+  const userPalette = ((state.data?.prefs?.theme as ColorPalette) || getActivePalette() || 'pastel') as ColorPalette;
   const settings: Settings = {
     structure: (state.data?.settings?.structure ?? 'solo') as Settings['structure'],
     view: (state.data?.prefs?.view ?? 'focado') as Settings['view'],
-    theme: (state.data?.prefs?.theme ?? 'dark') as Settings['theme'],
+    theme: userPalette === 'dark' ? 'dark' : 'light',
+    palette: userPalette,
     tourDone: state.data?.prefs?.tour_done ?? true,
   };
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', settings.theme === 'dark');
-  }, [settings.theme]);
+    applyThemePalette(settings.palette, settings.theme === 'dark');
+  }, [settings.palette, settings.theme]);
 
   async function refresh() {
     await query.invalidateQueries({ queryKey: ['crm', user?.id, active] });
@@ -174,10 +194,13 @@ function useStateData() {
         const { error } = await supabase.from('tenant_settings').update({ structure: p.structure }).eq('tenant_id', active);
         if (error) throw error;
       }
+      if (p.palette) {
+        applyThemePalette(p.palette, p.palette === 'dark');
+      }
       const { error } = await supabase.from('user_preferences').upsert({
         user_id: user.id,
         view: p.view ?? settings.view,
-        theme: p.theme ?? settings.theme,
+        theme: p.palette ?? (p.theme ? (p.theme === 'dark' ? 'dark' : 'pastel') : settings.palette),
         tour_done: p.tourDone ?? settings.tourDone,
       });
       if (error) throw error;
@@ -495,6 +518,8 @@ function useStateData() {
     refresh,
     stages: state.data?.stages ?? [],
     members: state.data?.members ?? [],
+    userAvatar: state.data?.myProfile?.avatar_url || '',
+    userName: state.data?.myProfile?.display_name || user?.email?.split('@')[0] || 'Usuário',
     commissionRate: Number(state.data?.settings?.commission_rate ?? 0),
     pixKey: state.data?.settings?.pix_key ?? '',
 

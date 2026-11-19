@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
-import { Check, Clock, Copy, ExternalLink, FileText, Link2, MessageSquare, Plus, QrCode, Send, ShieldCheck, User } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, FileText, Link2, MessageSquare, Plus, QrCode, Send, ShieldCheck, User, Bell, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { seo } from "@/lib/seo";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/_authenticated/portal")({
-  head: () => seo("Pós-venda e Chamados", "Portal do cliente com link mágico, rastreio de entrega e chamados com SLA persistidos."),
+  head: () => seo("Pós-venda, NPS & SLA · Alliar CRM", "Portal do cliente com link mágico, NPS, rastreio de entrega, renovações e chamados com SLA."),
   component: Portal,
 });
 
@@ -39,7 +39,7 @@ function Portal() {
       phone: l.phone,
     }));
     if (list.length === 0) {
-      return [{ id: "c-default", name: "Clínica Sorriso", company: "Clínica Sorriso Ltda", phone: "11988887777" }];
+      return [{ id: "c-default", name: "Nenhum cliente", company: "", phone: "" }];
     }
     return list;
   }, [leads]);
@@ -330,6 +330,66 @@ function Portal() {
           </div>
         </section>
       </div>
+
+      {/* NPS — PESQUISA DE SATISFAÇÃO DO CLIENTE */}
+      <section className="rounded-xl border bg-card p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b pb-4">
+          <div>
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <Heart className="size-4 text-rose-500" /> NPS · Satisfação dos Clientes
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Net Promoter Score das respostas de pós-venda — clientes que voltam e indicam aumentam o faturamento em até 60%.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+          <Heart className="size-10 text-muted-foreground/30 mb-3" />
+          <p className="text-sm font-medium text-muted-foreground">Nenhuma resposta de NPS ainda.</p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-md">
+            Dispare a pesquisa pelo WhatsApp para coletar avaliações reais dos seus clientes. As respostas aparecerão aqui automaticamente.
+          </p>
+        </div>
+
+        <div className="rounded-lg border bg-muted/30 p-3.5 flex items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground">
+            <b className="text-foreground">Enviar pesquisa NPS por WhatsApp</b> para clientes ativos — resposta em 1 clique direto no chat.
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const msg = encodeURIComponent("Olá! Em uma escala de 0 a 10, o quanto você recomendaria a Alliar para um amigo ou empresa parceira? Responda aqui mesmo no WhatsApp. 😊");
+              window.open(`https://wa.me/?text=${msg}`, "_blank");
+              toast.success("Mensagem NPS copiada! Abra para o cliente no WhatsApp.");
+            }}
+          >
+            <Send className="size-3.5 text-emerald-500" />
+            Disparar NPS no WhatsApp
+          </Button>
+        </div>
+      </section>
+
+      {/* ALERTAS DE RENOVAÇÃO & CONTRATOS PRÓXIMOS DO VENCIMENTO */}
+      <section className="rounded-xl border bg-card p-6 shadow-sm space-y-4">
+        <div className="border-b pb-4">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <Bell className="size-4 text-amber-500" /> Renovações & Contratos Vencendo
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Acompanhe os contratos próximos do vencimento e acione a renovação proativamente pelo WhatsApp.
+          </p>
+        </div>
+
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+          <Bell className="size-10 text-muted-foreground/30 mb-3" />
+          <p className="text-sm font-medium text-muted-foreground">Nenhum contrato de renovação cadastrado ainda.</p>
+          <p className="text-xs text-muted-foreground mt-1 max-w-md">
+            Registre datas de vencimento nos dados do cliente para receber alertas automáticos de renovação.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

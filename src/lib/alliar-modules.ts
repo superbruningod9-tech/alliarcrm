@@ -61,16 +61,28 @@ const REFERRAL_STORAGE_PREFIX = "alliar:referrals:";
 const AUTOMATION_SETTINGS_PREFIX = "alliar:automations:";
 
 export interface AutomationSettings {
+  whatsappNumber?: string;
+  businessPhone?: string;
   welcomeEnabled: boolean;
+  welcomeMessage?: string;
   antiVacuoEnabled: boolean;
   antiVacuoMinutes: number;
+  antiVacuoSound?: boolean;
+  reminderEnabled?: boolean;
+  reminderMinutes?: number;
   referralRewardPct: number;
 }
 
 const DEFAULT_SETTINGS: AutomationSettings = {
+  whatsappNumber: "",
+  businessPhone: "",
   welcomeEnabled: true,
+  welcomeMessage: "Olá, {{nome}}! Recebemos seu contato aqui na {{empresa}}. Me chamo {{vendedor}}, como posso te ajudar?",
   antiVacuoEnabled: true,
   antiVacuoMinutes: SLA_MINUTES,
+  antiVacuoSound: true,
+  reminderEnabled: true,
+  reminderMinutes: 120,
   referralRewardPct: 10,
 };
 

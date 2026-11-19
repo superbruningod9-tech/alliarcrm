@@ -221,7 +221,7 @@ export function LeadSheet() {
   return (
     <>
       <Sheet open={!!lead && !pix} onOpenChange={(o) => !o && select(null)}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+        <SheetContent className="w-full overflow-y-auto sm:max-w-xl premium-card">
           <SheetHeader>
             <div className="flex items-center justify-between pb-2 border-b">
               <div>

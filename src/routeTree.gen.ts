@@ -19,6 +19,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedContatosRouteImport } from './routes/_authenticated/contatos'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedDescobertaRouteImport } from './routes/_authenticated/descoberta'
 import { Route as AuthenticatedDialerRouteImport } from './routes/_authenticated/dialer'
 import { Route as AuthenticatedEquipeRouteImport } from './routes/_authenticated/equipe'
 import { Route as AuthenticatedFormsRouteImport } from './routes/_authenticated/forms'
@@ -94,6 +95,11 @@ const AuthenticatedContatosRoute = AuthenticatedContatosRouteImport.update({
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedDescobertaRoute = AuthenticatedDescobertaRouteImport.update({
+  id: '/descoberta',
+  path: '/descoberta',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDialerRoute = AuthenticatedDialerRouteImport.update({
@@ -242,6 +248,7 @@ export interface FileRoutesByFullPath {
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/contatos': typeof AuthenticatedContatosRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/descoberta': typeof AuthenticatedDescobertaRoute
   '/dialer': typeof AuthenticatedDialerRoute
   '/equipe': typeof AuthenticatedEquipeRoute
   '/forms': typeof AuthenticatedFormsRoute
@@ -279,6 +286,7 @@ export interface FileRoutesByTo {
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/contatos': typeof AuthenticatedContatosRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/descoberta': typeof AuthenticatedDescobertaRoute
   '/dialer': typeof AuthenticatedDialerRoute
   '/equipe': typeof AuthenticatedEquipeRoute
   '/forms': typeof AuthenticatedFormsRoute
@@ -318,6 +326,7 @@ export interface FileRoutesById {
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/contatos': typeof AuthenticatedContatosRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/descoberta': typeof AuthenticatedDescobertaRoute
   '/_authenticated/dialer': typeof AuthenticatedDialerRoute
   '/_authenticated/equipe': typeof AuthenticatedEquipeRoute
   '/_authenticated/forms': typeof AuthenticatedFormsRoute
@@ -357,6 +366,7 @@ export interface FileRouteTypes {
     | '/configuracoes'
     | '/contatos'
     | '/dashboard'
+    | '/descoberta'
     | '/dialer'
     | '/equipe'
     | '/forms'
@@ -394,6 +404,7 @@ export interface FileRouteTypes {
     | '/configuracoes'
     | '/contatos'
     | '/dashboard'
+    | '/descoberta'
     | '/dialer'
     | '/equipe'
     | '/forms'
@@ -432,6 +443,7 @@ export interface FileRouteTypes {
     | '/_authenticated/configuracoes'
     | '/_authenticated/contatos'
     | '/_authenticated/dashboard'
+    | '/_authenticated/descoberta'
     | '/_authenticated/dialer'
     | '/_authenticated/equipe'
     | '/_authenticated/forms'
@@ -550,6 +562,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/descoberta': {
+      id: '/_authenticated/descoberta'
+      path: '/descoberta'
+      fullPath: '/descoberta'
+      preLoaderRoute: typeof AuthenticatedDescobertaRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dialer': {
@@ -741,6 +760,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedContatosRoute: typeof AuthenticatedContatosRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedDescobertaRoute: typeof AuthenticatedDescobertaRoute
   AuthenticatedDialerRoute: typeof AuthenticatedDialerRoute
   AuthenticatedEquipeRoute: typeof AuthenticatedEquipeRoute
   AuthenticatedFormsRoute: typeof AuthenticatedFormsRoute
@@ -763,6 +783,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedContatosRoute: AuthenticatedContatosRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedDescobertaRoute: AuthenticatedDescobertaRoute,
   AuthenticatedDialerRoute: AuthenticatedDialerRoute,
   AuthenticatedEquipeRoute: AuthenticatedEquipeRoute,
   AuthenticatedFormsRoute: AuthenticatedFormsRoute,

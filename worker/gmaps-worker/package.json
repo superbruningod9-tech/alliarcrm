@@ -1,0 +1,7 @@
+{
+  "name": "alliar-gmaps-worker",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node worker.mjs" },
+  "dependencies": { "playwright": "^1.48.0", "@supabase/supabase-js": "^2.45.0" }
+}

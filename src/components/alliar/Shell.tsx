@@ -188,7 +188,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [app.leads, app.select]);
 
   return (
-    <div className="min-h-screen bg-background font-sans antialiased flex flex-col relative w-full overflow-x-hidden">
+    <div className="min-h-screen bg-background font-sans antialiased flex flex-col relative w-full overflow-x-hidden premium-card">
       {/* MENU LATERAL SLIDE-OVER (GAVETA UNIFICADA, OCULTO POR PADRÃO) */}
       {menuOpen && (
         <div className="fixed inset-0 z-50 flex animate-in fade-in duration-150">

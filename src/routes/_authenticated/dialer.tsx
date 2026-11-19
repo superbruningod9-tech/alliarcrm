@@ -402,7 +402,7 @@ function DialerPage() {
 
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
-            <Input
+            <Input className="input-premium"
               value={searchLead}
               onChange={(e) => setSearchLead(e.target.value)}
               placeholder="Buscar por nome ou número…"
@@ -464,7 +464,7 @@ function DialerPage() {
             </div>
 
             <div className="flex items-center gap-2 px-1">
-              <Input
+              <Input className="input-premium"
                 type="tel"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}

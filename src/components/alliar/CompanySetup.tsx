@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { companySchema } from '@/lib/crm-schemas';
@@ -53,6 +53,68 @@ export function CompanySetup() {
   const [totalEmployees, setTotalEmployees] = useState('');
   const [userCount, setUserCount] = useState('');
 
+  // Carrega dados salvos anteriormente (para evitar campos vazios em recarregamento)
+  useEffect(() => {
+    const tid = app.tenantId;
+    if (tid) {
+      const currentTenant = app.tenants.find((t) => t.id === tid);
+      if (currentTenant?.name) setCompanyName(currentTenant.name);
+
+      const local = localStorage.getItem(`alliar:company_profile:${tid}`) || localStorage.getItem('alliar:company_profile:last');
+      if (local) {
+        try {
+          const parsed = JSON.parse(local);
+          if (parsed.companyName) setCompanyName(parsed.companyName);
+          if (parsed.cnpjFormatted || parsed.cnpj) setCnpj(parsed.cnpjFormatted || parsed.cnpj);
+          if (parsed.address) setAddress(parsed.address);
+          if (parsed.segment) setSegment(parsed.segment);
+          if (parsed.monthlyRevenue) setMonthlyRevenue(parsed.monthlyRevenue);
+          if (parsed.totalEmployees) setTotalEmployees(String(parsed.totalEmployees));
+          if (parsed.userCount) setUserCount(String(parsed.userCount));
+        } catch {}
+      }
+
+      // Carrega do Supabase
+      void supabase
+        .from('b2b_connections')
+        .select('*')
+        .eq('tenant_id', tid)
+        .in('provider', ['company_registration', 'company_profile'])
+        .order('connected_at', { ascending: false })
+        .then(({ data: rows }) => {
+          if (!rows || rows.length === 0) return;
+          const r = rows.find((x) => x.provider === 'company_profile') || rows[0];
+          if (r?.key_ciphertext) {
+            try {
+              const p = JSON.parse(r.key_ciphertext);
+              if (p.companyName) setCompanyName(p.companyName);
+              if (p.cnpjFormatted || p.cnpj) setCnpj(p.cnpjFormatted || p.cnpj);
+              if (p.address) setAddress(p.address);
+              if (p.segment) setSegment(p.segment);
+              if (p.monthlyRevenue) setMonthlyRevenue(p.monthlyRevenue);
+              if (p.totalEmployees) setTotalEmployees(String(p.totalEmployees));
+              if (p.userCount) setUserCount(String(p.userCount));
+            } catch {}
+          }
+        });
+    } else {
+      // Tenta fallback do último perfil salvo localmente
+      const lastLocal = localStorage.getItem('alliar:company_profile:last');
+      if (lastLocal) {
+        try {
+          const p = JSON.parse(lastLocal);
+          if (p.companyName) setCompanyName(p.companyName);
+          if (p.cnpjFormatted || p.cnpj) setCnpj(p.cnpjFormatted || p.cnpj);
+          if (p.address) setAddress(p.address);
+          if (p.segment) setSegment(p.segment);
+          if (p.monthlyRevenue) setMonthlyRevenue(p.monthlyRevenue);
+          if (p.totalEmployees) setTotalEmployees(String(p.totalEmployees));
+          if (p.userCount) setUserCount(String(p.userCount));
+        } catch {}
+      }
+    }
+  }, [app.tenantId, app.tenants]);
+
   // Modo de trabalho
   const [mode, setMode] = useState<'solo' | 'equipe'>('solo');
 
@@ -91,14 +153,22 @@ export function CompanySetup() {
     try {
       const validName = companySchema.parse(companyName.trim());
 
-      // 1. Cria a empresa no banco de dados via RPC oficial
-      const { data: tenantId, error: rpcError } = await supabase.rpc('create_tenant', {
-        company_name: validName,
-      });
-      if (rpcError) throw rpcError;
-      if (!tenantId) throw new Error('Não foi possível obter o identificador da empresa criada.');
+      let targetTenantId = app.tenantId;
 
-      setCreatedTenantId(tenantId);
+      // 1. Se não houver empresa ativa, cria no banco de dados via RPC oficial
+      if (!targetTenantId) {
+        const { data: newTenantId, error: rpcError } = await supabase.rpc('create_tenant', {
+          company_name: validName,
+        });
+        if (rpcError) throw rpcError;
+        if (!newTenantId) throw new Error('Não foi possível obter o identificador da empresa criada.');
+        targetTenantId = newTenantId;
+      } else {
+        // Se já existe empresa ativa, atualiza o nome na tabela tenants
+        await supabase.from('tenants').update({ name: validName }).eq('id', targetTenantId);
+      }
+
+      setCreatedTenantId(targetTenantId);
 
       // 2. Salva as informações cadastrais vinculadas à empresa e ao usuário no banco de dados
       const companyDetails = {
@@ -116,22 +186,45 @@ export function CompanySetup() {
       // Persiste no Supabase na tabela de conexões/configurações corporativas
       try {
         if (user?.id) {
-          await supabase.from('b2b_connections').upsert({
-            user_id: user.id,
-            tenant_id: tenantId,
-            provider: 'company_registration',
-            key_ciphertext: JSON.stringify(companyDetails),
-            connected_at: new Date().toISOString(),
-          });
+          const { data: existing } = await supabase
+            .from('b2b_connections')
+            .select('*')
+            .eq('tenant_id', targetTenantId)
+            .eq('provider', 'company_profile')
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from('b2b_connections')
+              .update({
+                key_ciphertext: JSON.stringify(companyDetails),
+                connected_at: new Date().toISOString(),
+              })
+              .eq('tenant_id', targetTenantId)
+              .eq('provider', 'company_profile');
+          } else {
+            await supabase.from('b2b_connections').insert({
+              user_id: user.id,
+              tenant_id: targetTenantId,
+              provider: 'company_profile',
+              key_ciphertext: JSON.stringify(companyDetails),
+              connected_at: new Date().toISOString(),
+            });
+          }
         }
       } catch (err) {
         console.warn('Persistência em b2b_connections:', err);
       }
 
-      // Persiste no cache local
+      // Persiste no cache local permanente
       try {
-        localStorage.setItem(`alliar:company_profile:${tenantId}`, JSON.stringify(companyDetails));
+        localStorage.setItem(`alliar:company_profile:${targetTenantId}`, JSON.stringify(companyDetails));
+        localStorage.setItem('alliar:company_profile:last', JSON.stringify(companyDetails));
       } catch {}
+
+      // Atualiza o estado da aplicação e seleciona a empresa
+      await query.invalidateQueries({ queryKey: ['tenants'] });
+      app.switchTenant(targetTenantId);
 
       // 3. Dispara o e-mail automático de boas-vindas personalizado
       if (user?.email) {

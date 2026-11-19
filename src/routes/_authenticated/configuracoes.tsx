@@ -102,12 +102,12 @@ function SettingsPage() {
     if (currentTenant) {
       setActiveCompanyName(currentTenant.name || "");
     }
-    // Carrega do cache local
-    const local = localStorage.getItem(`alliar:company_profile:${app.tenantId}`);
+    // Carrega do cache local permanente
+    const local = localStorage.getItem(`alliar:company_profile:${app.tenantId}`) || localStorage.getItem("alliar:company_profile:last");
     if (local) {
       try {
         const parsed = JSON.parse(local);
-        if (parsed.companyName && !currentTenant?.name) setActiveCompanyName(parsed.companyName);
+        if (parsed.companyName) setActiveCompanyName(parsed.companyName);
         if (parsed.cnpjFormatted || parsed.cnpj) setActiveCompanyCnpj(parsed.cnpjFormatted || parsed.cnpj);
         if (parsed.address) setActiveCompanyAddress(parsed.address);
         if (parsed.segment) setActiveCompanySegment(parsed.segment);
@@ -218,6 +218,7 @@ function SettingsPage() {
 
       // 3. Salva no cache local permanente
       localStorage.setItem(`alliar:company_profile:${app.tenantId}`, JSON.stringify(profileData));
+      localStorage.setItem("alliar:company_profile:last", JSON.stringify(profileData));
 
       await query.invalidateQueries({ queryKey: ["tenants"] });
       await app.refresh();

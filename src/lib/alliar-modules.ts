@@ -58,7 +58,7 @@ export interface ReferrerSummary {
 
 const TICKET_STORAGE_PREFIX = "alliar:tickets:";
 const REFERRAL_STORAGE_PREFIX = "alliar:referrals:";
-const AUTOMATION_SETTINGS_PREFIX = "alliar:automations:";
+const AUTOMATION_SETTINGS_PREFIX = "alliar:automations:v2:";
 
 export interface AutomationSettings {
   whatsappNumber?: string;

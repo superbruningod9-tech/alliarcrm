@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ConviteRouteImport } from './routes/convite'
+import { Route as FormularioRouteImport } from './routes/formulario'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
@@ -25,6 +26,7 @@ import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedIndicacoesRouteImport } from './routes/_authenticated/indicacoes'
 import { Route as AuthenticatedIntegracoesRouteImport } from './routes/_authenticated/integracoes'
 import { Route as AuthenticatedMetricsRouteImport } from './routes/_authenticated/metrics'
+import { Route as AuthenticatedPerfilRouteImport } from './routes/_authenticated/perfil'
 import { Route as AuthenticatedPipelineRouteImport } from './routes/_authenticated/pipeline'
 import { Route as AuthenticatedPortalRouteImport } from './routes/_authenticated/portal'
 import { Route as AuthenticatedPropostasRouteImport } from './routes/_authenticated/propostas'
@@ -61,6 +63,11 @@ const AuthRoute = AuthRouteImport.update({
 const ConviteRoute = ConviteRouteImport.update({
   id: '/convite',
   path: '/convite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FormularioRoute = FormularioRouteImport.update({
+  id: '/formulario',
+  path: '/formulario',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -123,6 +130,11 @@ const AuthenticatedIntegracoesRoute =
 const AuthenticatedMetricsRoute = AuthenticatedMetricsRouteImport.update({
   id: '/metrics',
   path: '/metrics',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPerfilRoute = AuthenticatedPerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedPipelineRoute = AuthenticatedPipelineRouteImport.update({
@@ -224,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/convite': typeof ConviteRoute
+  '/formulario': typeof FormularioRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
@@ -236,6 +249,7 @@ export interface FileRoutesByFullPath {
   '/indicacoes': typeof AuthenticatedIndicacoesRoute
   '/integracoes': typeof AuthenticatedIntegracoesRoute
   '/metrics': typeof AuthenticatedMetricsRoute
+  '/perfil': typeof AuthenticatedPerfilRoute
   '/pipeline': typeof AuthenticatedPipelineRoute
   '/portal': typeof AuthenticatedPortalRoute
   '/propostas': typeof AuthenticatedPropostasRoute
@@ -259,6 +273,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/convite': typeof ConviteRoute
+  '/formulario': typeof FormularioRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
@@ -271,6 +286,7 @@ export interface FileRoutesByTo {
   '/indicacoes': typeof AuthenticatedIndicacoesRoute
   '/integracoes': typeof AuthenticatedIntegracoesRoute
   '/metrics': typeof AuthenticatedMetricsRoute
+  '/perfil': typeof AuthenticatedPerfilRoute
   '/pipeline': typeof AuthenticatedPipelineRoute
   '/portal': typeof AuthenticatedPortalRoute
   '/propostas': typeof AuthenticatedPropostasRoute
@@ -296,6 +312,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/convite': typeof ConviteRoute
+  '/formulario': typeof FormularioRoute
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
@@ -308,6 +325,7 @@ export interface FileRoutesById {
   '/_authenticated/indicacoes': typeof AuthenticatedIndicacoesRoute
   '/_authenticated/integracoes': typeof AuthenticatedIntegracoesRoute
   '/_authenticated/metrics': typeof AuthenticatedMetricsRoute
+  '/_authenticated/perfil': typeof AuthenticatedPerfilRoute
   '/_authenticated/pipeline': typeof AuthenticatedPipelineRoute
   '/_authenticated/portal': typeof AuthenticatedPortalRoute
   '/_authenticated/propostas': typeof AuthenticatedPropostasRoute
@@ -333,6 +351,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/convite'
+    | '/formulario'
     | '/login'
     | '/reset-password'
     | '/configuracoes'
@@ -345,6 +364,7 @@ export interface FileRouteTypes {
     | '/indicacoes'
     | '/integracoes'
     | '/metrics'
+    | '/perfil'
     | '/pipeline'
     | '/portal'
     | '/propostas'
@@ -368,6 +388,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/convite'
+    | '/formulario'
     | '/login'
     | '/reset-password'
     | '/configuracoes'
@@ -380,6 +401,7 @@ export interface FileRouteTypes {
     | '/indicacoes'
     | '/integracoes'
     | '/metrics'
+    | '/perfil'
     | '/pipeline'
     | '/portal'
     | '/propostas'
@@ -404,6 +426,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/convite'
+    | '/formulario'
     | '/login'
     | '/reset-password'
     | '/_authenticated/configuracoes'
@@ -416,6 +439,7 @@ export interface FileRouteTypes {
     | '/_authenticated/indicacoes'
     | '/_authenticated/integracoes'
     | '/_authenticated/metrics'
+    | '/_authenticated/perfil'
     | '/_authenticated/pipeline'
     | '/_authenticated/portal'
     | '/_authenticated/propostas'
@@ -441,6 +465,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ConviteRoute: typeof ConviteRoute
+  FormularioRoute: typeof FormularioRoute
   LoginRoute: typeof LoginRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiB2bEnrichRoute: typeof ApiB2bEnrichRoute
@@ -483,6 +508,13 @@ declare module '@tanstack/react-router' {
       path: '/convite'
       fullPath: '/convite'
       preLoaderRoute: typeof ConviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/formulario': {
+      id: '/formulario'
+      path: '/formulario'
+      fullPath: '/formulario'
+      preLoaderRoute: typeof FormularioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -567,6 +599,13 @@ declare module '@tanstack/react-router' {
       path: '/metrics'
       fullPath: '/metrics'
       preLoaderRoute: typeof AuthenticatedMetricsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/perfil': {
+      id: '/_authenticated/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof AuthenticatedPerfilRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/pipeline': {
@@ -709,6 +748,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedIndicacoesRoute: typeof AuthenticatedIndicacoesRoute
   AuthenticatedIntegracoesRoute: typeof AuthenticatedIntegracoesRoute
   AuthenticatedMetricsRoute: typeof AuthenticatedMetricsRoute
+  AuthenticatedPerfilRoute: typeof AuthenticatedPerfilRoute
   AuthenticatedPipelineRoute: typeof AuthenticatedPipelineRoute
   AuthenticatedPortalRoute: typeof AuthenticatedPortalRoute
   AuthenticatedPropostasRoute: typeof AuthenticatedPropostasRoute
@@ -730,6 +770,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedIndicacoesRoute: AuthenticatedIndicacoesRoute,
   AuthenticatedIntegracoesRoute: AuthenticatedIntegracoesRoute,
   AuthenticatedMetricsRoute: AuthenticatedMetricsRoute,
+  AuthenticatedPerfilRoute: AuthenticatedPerfilRoute,
   AuthenticatedPipelineRoute: AuthenticatedPipelineRoute,
   AuthenticatedPortalRoute: AuthenticatedPortalRoute,
   AuthenticatedPropostasRoute: AuthenticatedPropostasRoute,
@@ -748,6 +789,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ConviteRoute: ConviteRoute,
+  FormularioRoute: FormularioRoute,
   LoginRoute: LoginRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiB2bEnrichRoute: ApiB2bEnrichRoute,

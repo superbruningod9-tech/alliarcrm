@@ -56,6 +56,11 @@
   --color-border: var(--border);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-pastel-mint: var(--pastel-mint);
+  --color-pastel-lavender: var(--pastel-lavender);
+  --color-pastel-peach: var(--pastel-peach);
+  --color-pastel-sky: var(--pastel-sky);
+  --color-pastel-rose: var(--pastel-rose);
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
   --color-input: var(--input);
@@ -77,30 +82,81 @@
 }
 
 :root {
-  --radius: 0.5rem;
-  --background: oklch(0.985 0.003 150);
-  --foreground: oklch(0.2 0.02 160);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.02 160);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.02 160);
+  --radius: 0.75rem;
+  /* Paleta Padrão: Bege Pastel (#F7F3EB / #FFFDF9 / Terracota Suave / Areia) */
+  --background: #F7F3EB;
+  --foreground: #2C251E;
+  --card: #FFFDF9;
+  --card-foreground: #2C251E;
+  --popover: #FFFDF9;
+  --popover-foreground: #2C251E;
+  --primary: #C25E38;
+  --primary-foreground: #FFFDF9;
+  --secondary: #EFE8DC;
+  --secondary-foreground: #2C251E;
+  --muted: #EFE8DC;
+  --muted-foreground: #766B5E;
+  --accent: #EFE4D4;
+  --accent-foreground: #2C251E;
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+  --warning: #D9822B;
+  --info: #2563EB;
+  --border: #E8DECD;
+  --input: #E8DECD;
+  --ring: #C25E38;
+
+  /* Tons Pastéis Semânticos Suaves */
+  --pastel-mint: #E2F0E7;
+  --pastel-lavender: #ECE5F6;
+  --pastel-peach: #FAEDE4;
+  --pastel-sky: #E2ECF7;
+  --pastel-rose: #F9E5E7;
+
+  --chart-1: #C25E38;
+  --chart-2: #3B82F6;
+  --chart-3: #D9822B;
+  --chart-4: #8B5CF6;
+  --chart-5: #10B981;
+
+  --sidebar: #F2ECE1;
+  --sidebar-foreground: #2C251E;
+  --sidebar-primary: #C25E38;
+  --sidebar-primary-foreground: #FFFDF9;
+  --sidebar-accent: #E8DEC8;
+  --sidebar-accent-foreground: #2C251E;
+  --sidebar-border: #E2D7C5;
+  --sidebar-ring: #C25E38;
+}
+
+/* PALETA: AZUL CORPORATIVO */
+.theme-blue {
+  --primary: oklch(0.58 0.18 250);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.94 0.03 245);
+  --accent-foreground: oklch(0.22 0.05 250);
+  --ring: oklch(0.58 0.18 250);
+  --sidebar-primary: oklch(0.58 0.18 250);
+}
+
+/* PALETA: VERDE MENTA */
+.theme-mint {
   --primary: oklch(0.62 0.17 152);
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.95 0.008 150);
-  --secondary-foreground: oklch(0.25 0.02 160);
-  --muted: oklch(0.955 0.006 150);
-  --muted-foreground: oklch(0.5 0.02 160);
-  --accent: oklch(0.94 0.02 152);
-  --accent-foreground: oklch(0.25 0.04 155);
-  --destructive: oklch(0.6 0.22 27);
-  --destructive-foreground: oklch(0.99 0 0);
-  --warning: oklch(0.75 0.16 70);
-  --info: oklch(0.6 0.14 250);
-  --border: oklch(0.91 0.008 150);
-  --input: oklch(0.91 0.008 150);
+  --accent: oklch(0.94 0.03 152);
+  --accent-foreground: oklch(0.22 0.05 152);
   --ring: oklch(0.62 0.17 152);
-  --chart-1: oklch(0.62 0.17 152); --chart-2: oklch(0.6 0.14 250); --chart-3: oklch(0.75 0.16 70); --chart-4: oklch(0.6 0.22 27); --chart-5: oklch(0.55 0.1 300);
-  --sidebar: oklch(0.97 0.004 150); --sidebar-foreground: oklch(0.2 0.02 160); --sidebar-primary: oklch(0.62 0.17 152); --sidebar-primary-foreground: oklch(0.99 0 0); --sidebar-accent: oklch(0.93 0.01 150); --sidebar-accent-foreground: oklch(0.2 0.02 160); --sidebar-border: oklch(0.91 0.008 150); --sidebar-ring: oklch(0.62 0.17 152);
+  --sidebar-primary: oklch(0.62 0.17 152);
+}
+
+/* PALETA: LAVANDA CRIATIVO */
+.theme-lavender {
+  --primary: oklch(0.62 0.18 298);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.94 0.03 298);
+  --accent-foreground: oklch(0.22 0.05 298);
+  --ring: oklch(0.62 0.18 298);
+  --sidebar-primary: oklch(0.62 0.18 298);
 }
 
 .dark {
@@ -128,18 +184,116 @@
   --sidebar: oklch(0.135 0.006 165); --sidebar-foreground: oklch(0.95 0.005 150); --sidebar-primary: oklch(0.78 0.18 150); --sidebar-primary-foreground: oklch(0.16 0.02 160); --sidebar-accent: oklch(0.22 0.008 165); --sidebar-accent-foreground: oklch(0.95 0.005 150); --sidebar-border: oklch(1 0 0 / 8%); --sidebar-ring: oklch(0.78 0.18 150);
 }
 
+/* BADGES E CARDS PASTÉIS MODERNOS */
+.badge-pastel-mint {
+  background-color: oklch(0.94 0.05 155);
+  color: oklch(0.3 0.1 155);
+  border: 1px solid oklch(0.88 0.06 155);
+}
+.badge-pastel-lavender {
+  background-color: oklch(0.94 0.05 300);
+  color: oklch(0.32 0.12 300);
+  border: 1px solid oklch(0.88 0.06 300);
+}
+.badge-pastel-peach {
+  background-color: oklch(0.95 0.05 55);
+  color: oklch(0.38 0.12 55);
+  border: 1px solid oklch(0.89 0.06 55);
+}
+.badge-pastel-sky {
+  background-color: oklch(0.94 0.05 235);
+  color: oklch(0.3 0.11 235);
+  border: 1px solid oklch(0.88 0.06 235);
+}
+.badge-pastel-rose {
+  background-color: oklch(0.95 0.05 18);
+  color: oklch(0.38 0.13 18);
+  border: 1px solid oklch(0.89 0.06 18);
+}
+.dark .badge-pastel-mint {
+  background-color: oklch(0.24 0.06 155);
+  color: oklch(0.88 0.08 155);
+  border-color: oklch(0.32 0.08 155);
+}
+.dark .badge-pastel-lavender {
+  background-color: oklch(0.25 0.06 300);
+  color: oklch(0.88 0.08 300);
+  border-color: oklch(0.33 0.08 300);
+}
+.dark .badge-pastel-peach {
+  background-color: oklch(0.26 0.06 55);
+  color: oklch(0.88 0.08 55);
+  border-color: oklch(0.34 0.08 55);
+}
+.dark .badge-pastel-sky {
+  background-color: oklch(0.25 0.06 235);
+  color: oklch(0.88 0.08 235);
+  border-color: oklch(0.33 0.08 235);
+}
+.dark .badge-pastel-rose {
+  background-color: oklch(0.26 0.06 18);
+  color: oklch(0.88 0.08 18);
+  border-color: oklch(0.34 0.08 18);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
   }
 
-  body {
+  html, body {
+    max-width: 100vw;
+    overflow-x: hidden;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+
+  p, h1, h2, h3, h4, h5, h6, span, label, button, a {
+    overflow-wrap: break-word;
+  }
+
   kbd { font-family: var(--font-mono); font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-muted); color: var(--color-muted-foreground); }
+}
+
+/* ========================================================================= */
+/* BARRA DE ROLAGEM (SCROLLBAR) CLEAN E MINIMALISTA - 6px                   */
+/* ========================================================================= */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(194, 175, 150, 0.45) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(194, 175, 150, 0.45);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(160, 135, 105, 0.7);
+}
+
+.dark * {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.35);
 }
 
 .google-auth { background: var(--google-bg); color: var(--google-fg); border-color: var(--google-border); }

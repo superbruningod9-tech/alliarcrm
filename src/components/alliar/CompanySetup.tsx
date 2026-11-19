@@ -137,7 +137,7 @@ export function CompanySetup() {
       if (user?.email) {
         const emailResult = await sendWelcomeEmail({
           to: user.email,
-          recipientName: user.email.split('@')[0],
+          recipientName: user.email.split('@')[0] || 'Usuário',
           companyName: validName,
           dashboardUrl: `${window.location.origin}/dashboard`,
         });
@@ -206,13 +206,13 @@ export function CompanySetup() {
     try {
       const keysToSave: Record<string, string> = {};
       if (aiKey.trim()) {
-        if (aiProvider === 'gemini') keysToSave.geminiKey = aiKey.trim();
-        else if (aiProvider === 'openai') keysToSave.openaiKey = aiKey.trim();
-        else if (aiProvider === 'groq') keysToSave.groqKey = aiKey.trim();
+        if (aiProvider === 'gemini') keysToSave['geminiKey'] = aiKey.trim();
+        else if (aiProvider === 'openai') keysToSave['openaiKey'] = aiKey.trim();
+        else if (aiProvider === 'groq') keysToSave['groqKey'] = aiKey.trim();
       }
       if (b2bKey.trim()) {
-        if (b2bProvider === 'google') keysToSave.googlePlacesKey = b2bKey.trim();
-        else if (b2bProvider === 'apollo') keysToSave.apolloKey = b2bKey.trim();
+        if (b2bProvider === 'google') keysToSave['googlePlacesKey'] = b2bKey.trim();
+        else if (b2bProvider === 'apollo') keysToSave['apolloKey'] = b2bKey.trim();
       }
 
       if (Object.keys(keysToSave).length > 0) {

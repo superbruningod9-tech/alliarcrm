@@ -53,10 +53,10 @@ function Contacts() {
     if (cId) {
       const c = rows.data?.data.find((x) => x.id === cId);
       const socios = (c?.socios as Record<string, unknown>) || {};
-      setNotes((socios.notes as string) || '');
-      setFirstContact((socios.first_contact_at as string) || '');
-      setNextFollowUp((socios.next_followup_at as string) || '');
-      setNextMeeting((socios.next_meeting_at as string) || '');
+      setNotes(typeof socios['notes'] === 'string' ? socios['notes'] : '');
+      setFirstContact(typeof socios['first_contact_at'] === 'string' ? socios['first_contact_at'] : '');
+      setNextFollowUp(typeof socios['next_followup_at'] === 'string' ? socios['next_followup_at'] : '');
+      setNextMeeting(typeof socios['next_meeting_at'] === 'string' ? socios['next_meeting_at'] : '');
     } else {
       setNotes('');
       setFirstContact('');

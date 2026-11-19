@@ -305,7 +305,7 @@ function SettingsPage() {
                 <div className="flex gap-2">
                   <Input
                     name="name"
-                    defaultValue={profile.data?.display_name || user?.user_metadata?.display_name || user?.email?.split("@")[0] || ""}
+                    defaultValue={profile.data?.display_name || user?.user_metadata?.['display_name'] || user?.email?.split("@")[0] || ""}
                     maxLength={120}
                     required
                     className="rounded-xl text-sm"

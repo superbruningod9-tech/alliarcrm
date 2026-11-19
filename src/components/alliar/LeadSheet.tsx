@@ -99,18 +99,18 @@ export function LeadSheet() {
         .maybeSingle()
         .then(({ data }) => {
           const socios = (data?.socios as Record<string, unknown>) || {};
-          if (socios.notes) setNotes(String(socios.notes));
+          if (socios['notes']) setNotes(String(socios['notes']));
           else {
             // Tenta obter da timeline caso haja nota gravada
             const lastNote = lead.timeline.find((t) => t.kind === "nota");
             if (lastNote) setNotes(lastNote.text.replace(/^📋 Anotação:\s*/, ""));
             else setNotes("");
           }
-          if (socios.first_contact_at) setFirstContact(toDateTimeLocal(String(socios.first_contact_at)));
+          if (socios['first_contact_at']) setFirstContact(toDateTimeLocal(String(socios['first_contact_at'])));
           else setFirstContact(toDateTimeLocal(lead.createdAt));
 
-          if (socios.next_followup_at) setNextFollowUp(toDateTimeLocal(String(socios.next_followup_at)));
-          if (socios.next_meeting_at) setNextMeeting(toDateTimeLocal(String(socios.next_meeting_at)));
+          if (socios['next_followup_at']) setNextFollowUp(toDateTimeLocal(String(socios['next_followup_at'])));
+          if (socios['next_meeting_at']) setNextMeeting(toDateTimeLocal(String(socios['next_meeting_at'])));
         });
     }
   }, [lead?.id]);

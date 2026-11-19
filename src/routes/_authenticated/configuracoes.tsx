@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ShieldCheck,
   Building,
+  Building2,
   Key,
   Bell,
   Palette,
@@ -82,6 +83,151 @@ function SettingsPage() {
   // Estado do acordeão da Zona de Perigo / Avançado
   const [dangerOpen, setDangerOpen] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+
+  // Dados Cadastrais da Empresa Ativa
+  const [activeCompanyName, setActiveCompanyName] = useState("");
+  const [activeCompanyCnpj, setActiveCompanyCnpj] = useState("");
+  const [activeCompanyAddress, setActiveCompanyAddress] = useState("");
+  const [activeCompanySegment, setActiveCompanySegment] = useState("");
+  const [activeCompanyRevenue, setActiveCompanyRevenue] = useState("");
+  const [activeCompanyEmployees, setActiveCompanyEmployees] = useState("");
+  const [activeCompanyUsers, setActiveCompanyUsers] = useState("");
+  const [savingCompanyProfile, setSavingCompanyProfile] = useState(false);
+  const [showNewCompanySetup, setShowNewCompanySetup] = useState(false);
+
+  // Carrega os dados cadastrais da empresa ativa
+  useEffect(() => {
+    if (!app.tenantId) return;
+    const currentTenant = app.tenants.find((t) => t.id === app.tenantId);
+    if (currentTenant) {
+      setActiveCompanyName(currentTenant.name || "");
+    }
+    // Carrega do cache local
+    const local = localStorage.getItem(`alliar:company_profile:${app.tenantId}`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (parsed.companyName && !currentTenant?.name) setActiveCompanyName(parsed.companyName);
+        if (parsed.cnpjFormatted || parsed.cnpj) setActiveCompanyCnpj(parsed.cnpjFormatted || parsed.cnpj);
+        if (parsed.address) setActiveCompanyAddress(parsed.address);
+        if (parsed.segment) setActiveCompanySegment(parsed.segment);
+        if (parsed.monthlyRevenue) setActiveCompanyRevenue(parsed.monthlyRevenue);
+        if (parsed.totalEmployees) setActiveCompanyEmployees(String(parsed.totalEmployees));
+        if (parsed.userCount) setActiveCompanyUsers(String(parsed.userCount));
+      } catch {}
+    }
+
+    // Carrega do Supabase (prioriza company_profile, fallback para company_registration)
+    void supabase
+      .from("b2b_connections")
+      .select("*")
+      .eq("tenant_id", app.tenantId)
+      .in("provider", ["company_registration", "company_profile"])
+      .order("connected_at", { ascending: false })
+      .then(({ data: rows }) => {
+        if (!rows || rows.length === 0) return;
+        // Prioriza company_profile sobre company_registration
+        const profileRow = rows.find((r) => r.provider === "company_profile") || rows[0];
+        if (profileRow?.key_ciphertext) {
+          try {
+            const p = JSON.parse(profileRow.key_ciphertext);
+            if (p.companyName) setActiveCompanyName(p.companyName);
+            if (p.cnpjFormatted || p.cnpj) setActiveCompanyCnpj(p.cnpjFormatted || p.cnpj);
+            if (p.address) setActiveCompanyAddress(p.address);
+            if (p.segment) setActiveCompanySegment(p.segment);
+            if (p.monthlyRevenue) setActiveCompanyRevenue(p.monthlyRevenue);
+            if (p.totalEmployees) setActiveCompanyEmployees(String(p.totalEmployees));
+            if (p.userCount) setActiveCompanyUsers(String(p.userCount));
+          } catch {}
+        }
+      });
+  }, [app.tenantId, app.tenants]);
+
+  function maskCnpjInput(val: string) {
+    return val
+      .replace(/\D/g, "")
+      .slice(0, 14)
+      .replace(/^(\d{2})(\d)/, "$1.$2")
+      .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/\.(\d{3})(\d)/, ".$1/$2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+
+  async function handleSaveCompanyProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!app.tenantId) {
+      toast.error("Nenhuma empresa selecionada.");
+      return;
+    }
+    if (!activeCompanyName.trim()) {
+      toast.error("O nome da empresa é obrigatório.");
+      return;
+    }
+    setSavingCompanyProfile(true);
+    try {
+      // 1. Atualiza na tabela tenants
+      const { error: tErr } = await supabase
+        .from("tenants")
+        .update({ name: activeCompanyName.trim() })
+        .eq("id", app.tenantId);
+      if (tErr) console.warn("Aviso ao atualizar nome na tabela tenants:", tErr);
+
+      // 2. Salva os dados completos na tabela b2b_connections
+      const profileData = {
+        companyName: activeCompanyName.trim(),
+        cnpj: activeCompanyCnpj.replace(/\D/g, ""),
+        cnpjFormatted: activeCompanyCnpj,
+        address: activeCompanyAddress.trim(),
+        segment: activeCompanySegment.trim(),
+        monthlyRevenue: activeCompanyRevenue,
+        totalEmployees: activeCompanyEmployees ? Number(activeCompanyEmployees) : null,
+        userCount: activeCompanyUsers ? Number(activeCompanyUsers) : 1,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (user?.id) {
+        // Tenta atualizar registro existente primeiro
+        const { data: existingProfile } = await supabase
+          .from("b2b_connections")
+          .select("*")
+          .eq("tenant_id", app.tenantId)
+          .eq("provider", "company_profile")
+          .maybeSingle();
+
+        if (existingProfile) {
+          // Atualiza o registro existente
+          await supabase
+            .from("b2b_connections")
+            .update({
+              key_ciphertext: JSON.stringify(profileData),
+              connected_at: new Date().toISOString(),
+            })
+            .eq("tenant_id", app.tenantId)
+            .eq("provider", "company_profile");
+        } else {
+          // Insere novo registro
+          await supabase.from("b2b_connections").insert({
+            tenant_id: app.tenantId,
+            user_id: user.id,
+            provider: "company_profile",
+            key_ciphertext: JSON.stringify(profileData),
+            connected_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      // 3. Salva no cache local permanente
+      localStorage.setItem(`alliar:company_profile:${app.tenantId}`, JSON.stringify(profileData));
+
+      await query.invalidateQueries({ queryKey: ["tenants"] });
+      await app.refresh();
+      toast.success("Dados cadastrais da empresa salvos com sucesso!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar dados da empresa.");
+    } finally {
+      setSavingCompanyProfile(false);
+    }
+  }
 
   const profile = useQuery({
     queryKey: ["profile", user?.id],
@@ -342,6 +488,242 @@ function SettingsPage() {
                 <select className="w-full rounded-xl border bg-background px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20">
                   <option value="America/Sao_Paulo">Horário de Brasília (GMT-3)</option>
                 </select>
+              </div>
+            </div>
+          </section>
+
+          {/* FICHA CADASTRAL COMPLETA DA EMPRESA ATIVA */}
+          <section className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Building2 className="size-4 text-primary" />
+                  <h2 className="text-base font-semibold">Ficha Cadastral da Empresa</h2>
+                  <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                    Dados Salvos e Persistentes
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Atualize o nome, CNPJ, endereço e parâmetros cadastrais da empresa ativa no CRM.
+                </p>
+              </div>
+
+              {app.tenants.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Trocar empresa:</span>
+                  <select
+                    value={app.tenantId ?? ""}
+                    onChange={(e) => app.switchTenant(e.target.value)}
+                    className="h-8 rounded-lg border bg-background px-2 text-xs font-semibold"
+                  >
+                    {app.tenants.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveCompanyProfile} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    Nome da Empresa <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    value={activeCompanyName}
+                    onChange={(e) => setActiveCompanyName(e.target.value)}
+                    required
+                    maxLength={120}
+                    placeholder="Ex: Minha Empresa Ltda"
+                    className="rounded-xl text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    CNPJ (com máscara)
+                  </label>
+                  <Input
+                    value={activeCompanyCnpj}
+                    onChange={(e) => setActiveCompanyCnpj(maskCnpjInput(e.target.value))}
+                    maxLength={18}
+                    placeholder="00.000.000/0001-00"
+                    className="rounded-xl text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    Endereço Geral (Cidade, UF, Logradouro)
+                  </label>
+                  <Input
+                    value={activeCompanyAddress}
+                    onChange={(e) => setActiveCompanyAddress(e.target.value)}
+                    maxLength={200}
+                    placeholder="Ex: Av. Paulista, 1000 - São Paulo, SP"
+                    className="rounded-xl text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    Segmento / Ramo de Atuação
+                  </label>
+                  <Input
+                    value={activeCompanySegment}
+                    onChange={(e) => setActiveCompanySegment(e.target.value)}
+                    maxLength={120}
+                    placeholder="Ex: Consultoria, Varejo, Saúde, TI..."
+                    className="rounded-xl text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    Faturamento Mensal
+                  </label>
+                  <select
+                    value={activeCompanyRevenue}
+                    onChange={(e) => setActiveCompanyRevenue(e.target.value)}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="Até R$ 20.000">Até R$ 20 mil</option>
+                    <option value="R$ 20.000 a R$ 50.000">R$ 20 mil – 50 mil</option>
+                    <option value="R$ 50.000 a R$ 150.000">R$ 50 mil – 150 mil</option>
+                    <option value="R$ 150.000 a R$ 500.000">R$ 150 mil – 500 mil</option>
+                    <option value="Acima de R$ 500.000">Acima de R$ 500 mil</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    Total de Funcionários
+                  </label>
+                  <Input
+                    value={activeCompanyEmployees}
+                    onChange={(e) => setActiveCompanyEmployees(e.target.value.replace(/\D/g, ""))}
+                    type="number"
+                    min={1}
+                    placeholder="Ex: 15"
+                    className="rounded-xl text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1.5">
+                    Usuários no CRM
+                  </label>
+                  <Input
+                    value={activeCompanyUsers}
+                    onChange={(e) => setActiveCompanyUsers(e.target.value.replace(/\D/g, ""))}
+                    type="number"
+                    min={1}
+                    placeholder="Ex: 5"
+                    className="rounded-xl text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="submit"
+                  disabled={savingCompanyProfile || !activeCompanyName.trim()}
+                  className="rounded-xl px-6 bg-[#C25E38] hover:bg-[#A84F2E] text-white font-bold"
+                >
+                  {savingCompanyProfile ? "Salvando Informações…" : "Salvar Dados Cadastrais da Empresa"}
+                </Button>
+              </div>
+            </form>
+          </section>
+
+          {/* AUTOMAÇÕES OPCIONAIS DE VENDAS & WHATSAPP */}
+          <section className="rounded-2xl border bg-card p-6 shadow-sm space-y-5">
+            <div className="border-b pb-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                <h2 className="text-base font-semibold">Automações de Vendas & WhatsApp (Opcionais)</h2>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Por padrão, todas as automações vêm desabilitadas para garantir controle total. Ative apenas as regras que desejar utilizar na sua operação.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {/* REGRA ANTI-VÁCUO */}
+              <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
+                <div className="space-y-1 pr-4">
+                  <div className="flex items-center gap-2">
+                    <Clock className="size-4 text-amber-500" />
+                    <span className="text-sm font-semibold">Regra Anti-Vácuo de Atendimento (Round-Robin)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">
+                      {app.automationSettings.antiVacuoEnabled ? "Ativada" : "Desativada"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Transfere automaticamente leads sem atendimento para o próximo vendedor após o limite estipulado.
+                  </p>
+                </div>
+                <Switch
+                  checked={app.automationSettings.antiVacuoEnabled}
+                  onCheckedChange={(c) => {
+                    app.updateAutomationSettings({ antiVacuoEnabled: c });
+                    toast.success(c ? "Regra Anti-Vácuo ativada com sucesso!" : "Regra Anti-Vácuo desativada.");
+                  }}
+                />
+              </div>
+
+              {/* LEMBRETES DE REUNIÃO */}
+              <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
+                <div className="space-y-1 pr-4">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="size-4 text-blue-500" />
+                    <span className="text-sm font-semibold">Lembretes Automáticos de Reunião</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600">
+                      {app.automationSettings.reminderEnabled ? "Ativado" : "Desativado"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Envia alerta e mensagem de lembrete com antecedência antes de reuniões agendadas com clientes.
+                  </p>
+                </div>
+                <Switch
+                  checked={app.automationSettings.reminderEnabled}
+                  onCheckedChange={(c) => {
+                    app.updateAutomationSettings({ reminderEnabled: c });
+                    toast.success(c ? "Lembretes de reunião ativados!" : "Lembretes de reunião desativados.");
+                  }}
+                />
+              </div>
+
+              {/* MENSAGEM DE BOAS-VINDAS */}
+              <div className="flex items-center justify-between rounded-xl border p-4 bg-muted/20">
+                <div className="space-y-1 pr-4">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="size-4 text-emerald-500" />
+                    <span className="text-sm font-semibold">Mensagem Automática de Boas-Vindas para Novos Leads</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">
+                      {app.automationSettings.welcomeEnabled ? "Ativada" : "Desativada"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Dispara saudação inicial padronizada assim que um novo lead entra no CRM.
+                  </p>
+                </div>
+                <Switch
+                  checked={app.automationSettings.welcomeEnabled}
+                  onCheckedChange={(c) => {
+                    app.updateAutomationSettings({ welcomeEnabled: c });
+                    toast.success(c ? "Boas-vindas automáticas ativadas!" : "Boas-vindas automáticas desativadas.");
+                  }}
+                />
               </div>
             </div>
           </section>

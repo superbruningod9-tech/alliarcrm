@@ -76,12 +76,12 @@ export interface AutomationSettings {
 const DEFAULT_SETTINGS: AutomationSettings = {
   whatsappNumber: "",
   businessPhone: "",
-  welcomeEnabled: true,
+  welcomeEnabled: false, // Desabilitado por padrão (ativado apenas se o cliente quiser)
   welcomeMessage: "Olá, {{nome}}! Recebemos seu contato aqui na {{empresa}}. Me chamo {{vendedor}}, como posso te ajudar?",
-  antiVacuoEnabled: true,
+  antiVacuoEnabled: false, // Desabilitado por padrão (ativado apenas se o cliente quiser)
   antiVacuoMinutes: SLA_MINUTES,
-  antiVacuoSound: true,
-  reminderEnabled: true,
+  antiVacuoSound: false, // Desabilitado por padrão
+  reminderEnabled: false, // Desabilitado por padrão (ativado apenas se o cliente quiser)
   reminderMinutes: 120,
   referralRewardPct: 10,
 };

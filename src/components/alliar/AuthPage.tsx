@@ -106,8 +106,11 @@ export function AuthPage() {
         muted
         playsInline
         className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none scale-105 transition-opacity duration-1000"
-        src="https://assets.mixkit.co/videos/preview/mixkit-set-of-plateaus-seen-from-the-sky-in-a-sunset-26070-large.mp4"
-      />
+        src="/videos/bg-luxury.mp4"
+      >
+        <source src="/videos/bg-luxury.mp4" type="video/mp4" />
+        <source src="https://videos.pexels.com/video-files/3129671/3129671-hd_1920_1080_30fps.mp4" type="video/mp4" />
+      </video>
 
       {/* OVERLAY GLASSMORPHISM / CONTRASTE CINEMATOGRÁFICO */}
       <div className="absolute inset-0 bg-gradient-to-tr from-black/85 via-black/60 to-black/75 backdrop-blur-[2px] z-10" />

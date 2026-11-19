@@ -11,6 +11,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import polishCss from "../polish.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "../lib/auth";
 
@@ -23,17 +24,17 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h1 className="text-7xl font-bold text-gradient">404</h1>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Página não encontrada</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          A página que você procura não existe ou foi movida.
         </p>
         <div className="mt-6">
           <Link
             to={user ? "/dashboard" : "/"}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go home
+            Voltar ao início
           </Link>
         </div>
       </div>
@@ -54,10 +55,10 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          Esta página não carregou
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          Algo deu errado do nosso lado. Tente recarregar ou volte ao início.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -67,13 +68,13 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try again
+            Tentar novamente
           </button>
           <Link
             to={user ? "/dashboard" : "/"}
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Go home
+            Voltar ao início
           </Link>
         </div>
       </div>
@@ -91,7 +92,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Alliar — CRM de vendas WhatsApp-first" },
       { name: "description", content: "CRM e automação de vendas para o Brasil: funil, WhatsApp, PIX e IA." },
-      { name: "author", content: "Lovable" },
+      { name: "author", content: "Alliar" },
+      { name: "theme-color", content: "#0b1220" },
+      { name: "referrer", content: "strict-origin-when-cross-origin" },
       { property: "og:title", content: "Alliar — CRM de vendas WhatsApp-first" },
       { property: "og:description", content: "CRM e automação de vendas para o Brasil: funil, WhatsApp, PIX e IA." },
       { property: "og:type", content: "website" },
@@ -103,6 +106,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
+      { rel: "stylesheet", href: polishCss },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },

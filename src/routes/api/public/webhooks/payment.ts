@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { processPaymentWebhook } from "@/lib/integrations";
+import { authenticateWebhook, json, sanitizeTenantId } from "@/lib/webhook-security";
 
 export const Route = createFileRoute("/api/public/webhooks/payment")({
   server: {
@@ -7,18 +8,13 @@ export const Route = createFileRoute("/api/public/webhooks/payment")({
       POST: async ({ request }) => {
         try {
           const url = new URL(request.url);
-          const tenantId = url.searchParams.get("t") || "default";
+          const tenantId = sanitizeTenantId(url.searchParams.get("t"));
+          if (!tenantId) return json({ error: "Parâmetro t inválido" }, 400);
           const queryGateway = (url.searchParams.get("gateway") || "").toLowerCase();
 
-          let body: any = {};
-          try {
-            body = await request.json();
-          } catch {
-            return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-              status: 400,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
+          const auth = await authenticateWebhook(request);
+          if ("response" in auth) return auth.response;
+          const body: any = auth.body ?? {};
 
           // Detecta gateway e normaliza payload
           let gateway: "kiwify" | "hotmart" | "asaas" | "stripe" | "mercadopago" = "kiwify";
@@ -73,26 +69,26 @@ export const Route = createFileRoute("/api/public/webhooks/payment")({
             paymentMethod = body.payment_method || "PIX";
           }
 
+          // Nunca inventar valor: pagamento sem valor válido é rejeitado.
+          if (!Number.isFinite(amount) || amount <= 0) {
+            return json({ error: "Valor do pagamento ausente ou inválido" }, 422);
+          }
+
           const result = await processPaymentWebhook({
             tenantId,
             gateway,
             customerName,
             customerPhone,
             customerEmail,
-            amount: amount || 2500,
+            amount,
             orderId,
             paymentMethod,
           });
 
-          return new Response(JSON.stringify({ status: "success", result }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
+          return json({ status: "success", result });
         } catch (err) {
-          return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Internal error" }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          });
+          console.error("[payment webhook]", err);
+          return json({ error: "Erro interno" }, 500);
         }
       },
     },

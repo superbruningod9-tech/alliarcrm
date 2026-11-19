@@ -1,0 +1,103 @@
+/* Alliar — camada de acabamento visual (CSS puro, carregada depois de styles.css).
+   Usa apenas as variáveis do tema, então funciona em todas as paletas. */
+
+:root {
+  --polish-glow: 14%;
+  --polish-grid: 5%;
+}
+.dark {
+  --polish-glow: 22%;
+  --polish-grid: 6%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Fundo com aurora + grade pontilhada sutil (não interfere na leitura) */
+body {
+  background-color: transparent;
+  min-height: 100vh;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 36rem at 8% -8%, color-mix(in oklab, var(--primary) var(--polish-glow), transparent), transparent 70%),
+    radial-gradient(48rem 32rem at 100% 0%, color-mix(in oklab, var(--chart-2) calc(var(--polish-glow) * 0.8), transparent), transparent 70%),
+    radial-gradient(54rem 34rem at 50% 115%, color-mix(in oklab, var(--chart-4) calc(var(--polish-glow) * 0.7), transparent), transparent 70%);
+  animation: aurora-drift 28s ease-in-out infinite alternate;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(color-mix(in oklab, var(--foreground) var(--polish-grid), transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 75%);
+}
+
+@keyframes aurora-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(-1.5%, 1.5%, 0) scale(1.06); }
+}
+
+/* Seleção de texto e foco acessível */
+::selection {
+  background: color-mix(in oklab, var(--primary) 35%, transparent);
+  color: var(--foreground);
+}
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* Utilitários reutilizáveis */
+.glass {
+  background: color-mix(in oklab, var(--card) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+.text-gradient {
+  background: linear-gradient(90deg, var(--primary), var(--chart-2) 55%, var(--chart-4));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hover-lift {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 34px -14px color-mix(in oklab, var(--primary) 45%, transparent);
+}
+.ring-glow {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 40%, transparent),
+    0 8px 30px -10px color-mix(in oklab, var(--primary) 55%, transparent);
+}
+
+/* Entrada suave de conteúdo */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+main, [role="main"] {
+  animation: rise-in 0.4s ease both;
+}
+
+/* Tabelas */
+table { border-collapse: separate; border-spacing: 0; }
+tbody tr { transition: background-color 0.15s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  body::before, main, [role="main"] { animation: none; }
+  .hover-lift, .hover-lift:hover { transition: none; transform: none; }
+}

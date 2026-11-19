@@ -1,3 +1,4 @@
+"REGRAS OBRIGATÓRIAS: Nunca crie dados mockados ou placeholders. Nunca instale bibliotecas pagas quando houver API nativa do navegador ou API pública gratuita. Sempre rode npm run builde vitest runantes de finalizar o PR."
 <!-- LOVABLE:BEGIN -->
 > [!IMPORTANT]
 > This project is connected to [Lovable](https://lovable.dev). Avoid rewriting

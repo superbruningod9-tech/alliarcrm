@@ -463,16 +463,27 @@ function DialerPage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between px-2">
-              <span className="text-2xl font-bold font-mono tracking-wider text-[#2B2520]">
-                {phoneNumber ? formatPhoneDisplay(phoneNumber) : "—"}
-              </span>
+            <div className="flex items-center gap-2 px-1">
+              <Input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void startCall("tel");
+                  }
+                }}
+                placeholder="(DDD) 90000-0000"
+                className="text-xl sm:text-2xl font-bold font-mono text-center tracking-wider text-[#2B2520] bg-white border-[#DED4C5] h-12 rounded-xl"
+              />
               {phoneNumber && (
                 <button
                   type="button"
-                  onClick={backspace}
-                  className="p-1 rounded-md text-[#7A6F62] hover:text-[#C25E38] hover:bg-stone-200"
-                  aria-label="Apagar dígito"
+                  onClick={() => setPhoneNumber("")}
+                  className="p-2.5 rounded-xl text-[#7A6F62] hover:text-[#C25E38] hover:bg-stone-200 transition-colors shrink-0"
+                  title="Limpar número"
+                  aria-label="Limpar número"
                 >
                   <Delete className="size-5" />
                 </button>

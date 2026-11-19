@@ -98,132 +98,142 @@ export function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F7F3EB] text-[#2B2520] flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8 selection:bg-[#C25E38]/20">
-      <div className="mx-auto w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+    <div className="relative min-h-screen w-full flex flex-col justify-center items-center px-4 py-8 sm:px-6 lg:px-8 overflow-hidden bg-black text-white selection:bg-[#0066CC]/30 font-sans">
+      {/* VÍDEO CINEMATOGRÁFICO DE FUNDO (ARQUITETURA & LUXO CORPORATIVO EM ALTA DEFINIÇÃO) */}
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none scale-105 transition-opacity duration-1000"
+        src="https://assets.mixkit.co/videos/preview/mixkit-set-of-plateaus-seen-from-the-sky-in-a-sunset-26070-large.mp4"
+      />
+
+      {/* OVERLAY GLASSMORPHISM / CONTRASTE CINEMATOGRÁFICO */}
+      <div className="absolute inset-0 bg-gradient-to-tr from-black/85 via-black/60 to-black/75 backdrop-blur-[2px] z-10" />
+
+      {/* CONTEÚDO PRINCIPAL (ELEVADO SOBRE O VÍDEO) */}
+      <div className="relative z-20 mx-auto w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
         
-        {/* COLUNA ESQUERDA: APRESENTAÇÃO UX / HERO EXPLICATIVO DO CRM */}
-        <div className="lg:col-span-7 space-y-6 pr-0 lg:pr-6">
+        {/* COLUNA ESQUERDA: APRESENTAÇÃO EDITORIAL DE ALTO PADRÃO */}
+        <div className="lg:col-span-7 space-y-7 pr-0 lg:pr-8">
           {/* BADGE DA MARCA */}
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#EFE8DC] border border-[#E0D5C3] px-3.5 py-1 text-xs font-semibold text-[#8C4325] shadow-2xs">
-            <Sparkles className="size-3.5 text-[#C25E38]" />
-            <span>Alliar CRM Prime · Vendas WhatsApp-First</span>
+          <div className="inline-flex items-center gap-2.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 shadow-xl">
+            <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="uppercase text-[11px] tracking-wider font-mono">Alliar Prime · Private Edition</span>
           </div>
 
-          <div className="space-y-3">
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-[#2B2520] leading-[1.15]">
-              O CRM definitivo para quem fecha negócios no{' '}
-              <span className="text-[#C25E38] underline decoration-[#C25E38]/30 underline-offset-4">
-                WhatsApp
+          <div className="space-y-4">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.08]">
+              Arquitetura de vendas para operações de{' '}
+              <span className="bg-gradient-to-r from-blue-400 via-sky-300 to-indigo-300 bg-clip-text text-transparent">
+                alto impacto.
               </span>
             </h1>
-            <p className="text-base sm:text-lg text-[#6E6458] leading-relaxed max-w-xl">
-              Gerencie seus contatos, evite o vácuo com distribuição automática, emita propostas com QR Code PIX e prospere clientes B2B reais em uma única tela.
+            <p className="text-base sm:text-lg text-zinc-300/90 leading-relaxed max-w-xl font-normal">
+              Controle absoluto do seu fluxo comercial no WhatsApp, prospecção ativa de empresas reais e emissão ágil de propostas com inteligência integrada.
             </p>
           </div>
 
-          {/* BENEFÍCIOS UX EM DESTAQUE */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-            <div className="rounded-2xl border border-[#E7DED0] bg-[#FFFDF9]/90 p-4 shadow-xs space-y-1.5 transition-all hover:border-[#C25E38]/40 hover:shadow-sm">
-              <div className="flex items-center gap-2 text-[#C25E38] font-bold text-sm">
-                <div className="size-7 rounded-lg bg-[#C25E38]/10 grid place-items-center">
-                  <MessageCircle className="size-4 text-[#C25E38]" />
+          {/* BENEFÍCIOS REFINADOS EM VIDRO TRANSLÚCIDO */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div className="rounded-2xl border border-white/15 bg-white/[0.07] backdrop-blur-md p-4 shadow-2xl space-y-2 transition-all hover:bg-white/[0.12] hover:border-white/30">
+              <div className="flex items-center gap-2 text-sky-400 font-semibold text-sm">
+                <div className="size-8 rounded-xl bg-sky-500/20 border border-sky-400/30 grid place-items-center">
+                  <MessageCircle className="size-4 text-sky-300" />
                 </div>
-                <span>WhatsApp sem Vácuo</span>
+                <span>WhatsApp Sem Vácuo</span>
               </div>
-              <p className="text-xs text-[#6E6458] leading-relaxed">
-                Distribuição round-robin inteligente (SLA de 5min) para nenhum lead esfriar sem atendimento.
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Roteamento e distribuição imediata com teleprompter inteligente de IA.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[#E7DED0] bg-[#FFFDF9]/90 p-4 shadow-xs space-y-1.5 transition-all hover:border-[#C25E38]/40 hover:shadow-sm">
-              <div className="flex items-center gap-2 text-[#166534] font-bold text-sm">
-                <div className="size-7 rounded-lg bg-[#166534]/10 grid place-items-center">
-                  <QrCode className="size-4 text-[#166534]" />
+            <div className="rounded-2xl border border-white/15 bg-white/[0.07] backdrop-blur-md p-4 shadow-2xl space-y-2 transition-all hover:bg-white/[0.12] hover:border-white/30">
+              <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+                <div className="size-8 rounded-xl bg-emerald-500/20 border border-emerald-400/30 grid place-items-center">
+                  <QrCode className="size-4 text-emerald-300" />
                 </div>
-                <span>Propostas & PIX Imediato</span>
+                <span>Propostas com PIX</span>
               </div>
-              <p className="text-xs text-[#6E6458] leading-relaxed">
-                Gere links de proposta com radar de visualização em tempo real e chave PIX automática.
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Radar de leitura em tempo real e fechamento automático ao pagar.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[#E7DED0] bg-[#FFFDF9]/90 p-4 shadow-xs space-y-1.5 transition-all hover:border-[#C25E38]/40 hover:shadow-sm">
-              <div className="flex items-center gap-2 text-[#1E40AF] font-bold text-sm">
-                <div className="size-7 rounded-lg bg-[#1E40AF]/10 grid place-items-center">
-                  <Compass className="size-4 text-[#1E40AF]" />
+            <div className="rounded-2xl border border-white/15 bg-white/[0.07] backdrop-blur-md p-4 shadow-2xl space-y-2 transition-all hover:bg-white/[0.12] hover:border-white/30">
+              <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+                <div className="size-8 rounded-xl bg-indigo-500/20 border border-indigo-400/30 grid place-items-center">
+                  <Compass className="size-4 text-indigo-300" />
                 </div>
-                <span>Prospecção Ativa B2B</span>
+                <span>Motor de Descoberta B2B</span>
               </div>
-              <p className="text-xs text-[#6E6458] leading-relaxed">
-                Busca de empresas reais por CNPJ oficial na Receita Federal e estabelecimentos no Google Maps.
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Empresas no mapa por geolocalização e consulta direta na Receita.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[#E7DED0] bg-[#FFFDF9]/90 p-4 shadow-xs space-y-1.5 transition-all hover:border-[#C25E38]/40 hover:shadow-sm">
-              <div className="flex items-center gap-2 text-[#9A3412] font-bold text-sm">
-                <div className="size-7 rounded-lg bg-[#9A3412]/10 grid place-items-center">
-                  <TrendingUp className="size-4 text-[#9A3412]" />
+            <div className="rounded-2xl border border-white/15 bg-white/[0.07] backdrop-blur-md p-4 shadow-2xl space-y-2 transition-all hover:bg-white/[0.12] hover:border-white/30">
+              <div className="flex items-center gap-2 text-amber-400 font-semibold text-sm">
+                <div className="size-8 rounded-xl bg-amber-500/20 border border-amber-400/30 grid place-items-center">
+                  <TrendingUp className="size-4 text-amber-300" />
                 </div>
-                <span>Funil Visual & Metas</span>
+                <span>Pipeline Estratégico</span>
               </div>
-              <p className="text-xs text-[#6E6458] leading-relaxed">
-                Kanban dinâmico com temperatura de leads (quente, morno, frio) e controle de follow-up.
+              <p className="text-xs text-zinc-300 leading-relaxed">
+                Visão executiva de receita projetada e temperatura de cada negociação.
               </p>
             </div>
           </div>
 
-          {/* SOCIAL PROOF / BADGE DE CONFIANÇA */}
-          <div className="flex items-center gap-3 pt-2 text-xs text-[#7A6F62]">
-            <div className="flex -space-x-1.5">
-              <div className="size-6 rounded-full bg-[#C25E38] text-white text-[10px] font-bold grid place-items-center border-2 border-[#F7F3EB]">A</div>
-              <div className="size-6 rounded-full bg-[#166534] text-white text-[10px] font-bold grid place-items-center border-2 border-[#F7F3EB]">P</div>
-              <div className="size-6 rounded-full bg-[#1E40AF] text-white text-[10px] font-bold grid place-items-center border-2 border-[#F7F3EB]">C</div>
-            </div>
-            <span>Junte-se a centenas de empresas que aceleraram suas vendas comerciais.</span>
+          {/* SELO DE QUALIDADE */}
+          <div className="flex items-center gap-3 pt-2 text-xs text-zinc-400">
+            <ShieldCheck className="size-4 text-emerald-400 shrink-0" />
+            <span>Infraestrutura corporativa segura com criptografia ponta a ponta.</span>
           </div>
         </div>
 
-        {/* COLUNA DIREITA: CARD DE LOGIN / CADASTRO UX EM TONS BEGE */}
+        {/* COLUNA DIREITA: CARD DE LOGIN DE LUXO EM VIDRO ACETINADO */}
         <div className="lg:col-span-5">
-          <div className="rounded-3xl border border-[#E0D5C3] bg-[#FFFDF9] p-6 sm:p-8 shadow-xl shadow-stone-900/5 space-y-6">
+          <div className="rounded-3xl border border-white/20 bg-white/[0.08] backdrop-blur-xl p-7 sm:p-9 shadow-2xl shadow-black/80 space-y-6">
             
             {/* CABEÇALHO DO FORMULÁRIO */}
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-extrabold uppercase tracking-widest text-[#C25E38]">
-                  [ALLIAR CRM]
+                <span className="text-[11px] font-extrabold uppercase tracking-widest text-sky-400 font-mono">
+                  ALLIAR · PORTAL
                 </span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-[#EFE8DC] text-[#7A6F62]">
-                  {mode === 'signup' ? 'Novo Acesso' : 'Acesso Seguro'}
+                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-white/10 text-zinc-200 border border-white/10">
+                  {mode === 'signup' ? 'Novo Cadastro' : 'Acesso Seguro'}
                 </span>
               </div>
-              <h2 className="text-2xl font-bold tracking-tight text-[#2B2520]">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
                 {mode === 'signup'
-                  ? 'Cadastre-se Gratuitamente'
+                  ? 'Criar Acesso Corporativo'
                   : mode === 'forgot'
-                  ? 'Recuperar Senha'
-                  : 'Entrar na sua Conta'}
+                  ? 'Recuperar Acesso'
+                  : 'Entrar no Sistema'}
               </h2>
-              <p className="text-xs text-[#7A6F62]">
+              <p className="text-xs text-zinc-300/80">
                 {mode === 'signup'
-                  ? 'Crie seu ambiente comercial completo em poucos segundos.'
-                  : 'Acesse o painel do seu CRM de vendas com segurança.'}
+                  ? 'Inicie seu cockpit comercial em segundos.'
+                  : 'Insira suas credenciais corporativas para prosseguir.'}
               </p>
             </div>
 
             {/* ABAS RÁPIDAS ENTRAR / CRIAR CONTA */}
             {mode !== 'forgot' && (
-              <div className="flex rounded-xl border border-[#E0D5C3] bg-[#F7F3EB] p-1 text-xs">
+              <div className="flex rounded-xl border border-white/15 bg-black/40 p-1 text-xs backdrop-blur-sm">
                 <button
                   type="button"
                   onClick={() => {
                     setMode('login');
                     setMessage('');
                   }}
-                  className={`flex-1 py-2 rounded-lg font-bold transition-all ${
+                  className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
                     mode === 'login'
-                      ? 'bg-[#FFFDF9] shadow-xs text-[#2B2520]'
-                      : 'text-[#7A6F62] hover:text-[#2B2520]'
+                      ? 'bg-white text-zinc-950 shadow-md'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   Fazer Login
@@ -234,13 +244,13 @@ export function AuthPage() {
                     setMode('signup');
                     setMessage('');
                   }}
-                  className={`flex-1 py-2 rounded-lg font-bold transition-all ${
+                  className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
                     mode === 'signup'
-                      ? 'bg-[#FFFDF9] shadow-xs text-[#2B2520]'
-                      : 'text-[#7A6F62] hover:text-[#2B2520]'
+                      ? 'bg-white text-zinc-950 shadow-md'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  Criar Conta
+                  Cadastrar
                 </button>
               </div>
             )}
@@ -248,41 +258,38 @@ export function AuthPage() {
             {/* FORMULÁRIO DE ENTRADA */}
             <form onSubmit={submit} className="space-y-4">
               {mode === 'signup' && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#554D43] mb-1.5">
-                    Seu Nome Completo
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-200">
+                    Nome Completo ou Razão
                   </label>
                   <Input
                     name="name"
                     required
-                    maxLength={120}
-                    autoComplete="name"
-                    placeholder="Ex: Roberto Alencar"
-                    className="rounded-xl h-11 bg-[#FBF9F5] border-[#DED4C5] focus:border-[#C25E38] focus:ring-[#C25E38]/20 text-sm"
+                    placeholder="Ex: Carlos Eduardo"
+                    className="rounded-xl h-11 bg-black/40 border-white/20 text-white placeholder:text-zinc-500 focus:border-sky-400 focus:ring-sky-400/20 text-sm"
                   />
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#554D43] mb-1.5">
-                  E-mail Corporativo
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-200">
+                  E-mail de Trabalho
                 </label>
                 <Input
                   name="email"
                   type="email"
                   required
-                  maxLength={254}
                   autoComplete="email"
-                  placeholder="seu@empresa.com"
-                  className="rounded-xl h-11 bg-[#FBF9F5] border-[#DED4C5] focus:border-[#C25E38] focus:ring-[#C25E38]/20 text-sm"
+                  placeholder="voce@empresa.com.br"
+                  className="rounded-xl h-11 bg-black/40 border-white/20 text-white placeholder:text-zinc-500 focus:border-sky-400 focus:ring-sky-400/20 text-sm"
                 />
               </div>
 
               {mode !== 'forgot' && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-[#554D43]">
-                      Senha de Acesso
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-200">
+                      Chave de Acesso
                     </label>
                     {mode === 'login' && (
                       <button
@@ -291,9 +298,9 @@ export function AuthPage() {
                           setMode('forgot');
                           setMessage('');
                         }}
-                        className="text-xs font-medium text-[#C25E38] hover:underline"
+                        className="text-[11px] font-medium text-sky-400 hover:text-sky-300 transition-colors"
                       >
-                        Esqueceu a senha?
+                        Esqueci a senha
                       </button>
                     )}
                   </div>
@@ -303,29 +310,29 @@ export function AuthPage() {
                     minLength={8}
                     required
                     autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                    placeholder="Mínimo de 8 caracteres"
-                    className="rounded-xl h-11 bg-[#FBF9F5] border-[#DED4C5] focus:border-[#C25E38] focus:ring-[#C25E38]/20 text-sm"
+                    placeholder="Mínimo 8 caracteres"
+                    className="rounded-xl h-11 bg-black/40 border-white/20 text-white placeholder:text-zinc-500 focus:border-sky-400 focus:ring-sky-400/20 text-sm"
                   />
                 </div>
               )}
 
-              {/* BOTÃO PRINCIPAL COM DESTAQUE TERRACOTA (#C25E38) */}
+              {/* BOTÃO PRINCIPAL COM DESTAQUE LUMINOSO */}
               <button
                 disabled={busy}
                 type="submit"
-                className="w-full rounded-xl h-11 text-sm font-bold text-white bg-[#C25E38] hover:bg-[#A84F2E] active:scale-[0.99] transition-all shadow-md shadow-[#C25E38]/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full rounded-xl h-11 text-sm font-bold text-white bg-gradient-to-r from-blue-600 via-sky-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.99] transition-all shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {busy ? (
-                  'Processando…'
+                  'Validando credenciais…'
                 ) : mode === 'signup' ? (
                   <>
-                    Cadastrar e Iniciar <ArrowRight className="size-4" />
+                    Iniciar Operação <ArrowRight className="size-4" />
                   </>
                 ) : mode === 'forgot' ? (
-                  'Enviar Link de Recuperação'
+                  'Enviar Redefinição'
                 ) : (
                   <>
-                    Entrar no Alliar CRM <ArrowRight className="size-4" />
+                    Acessar Plataforma <ArrowRight className="size-4" />
                   </>
                 )}
               </button>
@@ -334,10 +341,10 @@ export function AuthPage() {
             {message && (
               <div
                 role="status"
-                className={`p-3.5 rounded-xl text-xs leading-relaxed border ${
+                className={`p-3.5 rounded-xl text-xs leading-relaxed border backdrop-blur-sm ${
                   isSuccess
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800'
-                    : 'bg-destructive/10 border-destructive/30 text-destructive'
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                    : 'bg-red-500/20 border-red-400/40 text-red-200'
                 }`}
               >
                 {message}
@@ -352,16 +359,16 @@ export function AuthPage() {
                     setMode('login');
                     setMessage('');
                   }}
-                  className="text-xs font-medium text-[#7A6F62] hover:text-[#2B2520] underline"
+                  className="text-xs font-medium text-zinc-400 hover:text-white underline transition-colors"
                 >
-                  ← Voltar para a tela de login
+                  ← Voltar ao login principal
                 </button>
               </div>
             )}
 
-            <div className="border-t border-[#EAE2D5] pt-4 text-center">
-              <p className="text-[11px] text-[#8C8072]">
-                Ao continuar, você concorda com os termos de uso do <strong>[ALLIAR CRM]</strong>.
+            <div className="border-t border-white/10 pt-4 text-center">
+              <p className="text-[11px] text-zinc-400">
+                Alliar CRM Enterprise · Conectado com segurança.
               </p>
             </div>
           </div>

@@ -224,6 +224,82 @@ export function calculateLeadScores(
 }
 
 /**
+ * Diversificação de Resultados (Fair Ranking / Round-Robin):
+ * Evita que uma única marca (ex: Panvel) monopolize os primeiros resultados,
+ * intercalando marcas, estabelecimentos independentes, matrizes e filiais,
+ * mantendo 100% de todas as unidades encontradas na lista completa.
+ */
+export function diversifyLeads(leads: MasterLead[]): MasterLead[] {
+  if (leads.length <= 2) return leads;
+
+  const groups = new Map<string, MasterLead[]>();
+  for (const l of leads) {
+    const key = l.isNetwork && l.networkName
+      ? `net:${normName(l.networkName)}`
+      : `ind:${l.key}`;
+    const list = groups.get(key) ?? [];
+    list.push(l);
+    groups.set(key, list);
+  }
+
+  for (const list of groups.values()) {
+    list.sort((a, b) => b.score - a.score || (b.reviewsCount || 0) - (a.reviewsCount || 0));
+  }
+
+  const netGroups: MasterLead[][] = [];
+  const indepGroups: MasterLead[][] = [];
+
+  for (const list of groups.values()) {
+    if (list.length > 1 || list[0]?.isNetwork) {
+      netGroups.push(list);
+    } else {
+      indepGroups.push(list);
+    }
+  }
+
+  netGroups.sort((a, b) => b[0]!.score - a[0]!.score);
+  indepGroups.sort((a, b) => b[0]!.score - a[0]!.score);
+
+  const result: MasterLead[] = [];
+  let remainingCount = leads.length;
+
+  while (remainingCount > 0) {
+    let progressed = false;
+
+    // Até 2 estabelecimentos independentes por rodada
+    for (let i = 0; i < 2; i++) {
+      const indGroup = indepGroups.find((g) => g.length > 0);
+      if (indGroup) {
+        result.push(indGroup.shift()!);
+        remainingCount--;
+        progressed = true;
+      }
+    }
+
+    // 1 de cada rede por rodada
+    for (const ng of netGroups) {
+      if (ng.length > 0) {
+        result.push(ng.shift()!);
+        remainingCount--;
+        progressed = true;
+      }
+    }
+
+    if (!progressed) {
+      for (const g of [...indepGroups, ...netGroups]) {
+        while (g.length > 0) {
+          result.push(g.shift()!);
+          remainingCount--;
+        }
+      }
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Ordena os leads preservando todos os registros encontrados.
  */
 export function sortLeads(leads: MasterLead[], mode: SortMode): MasterLead[] {
@@ -286,7 +362,6 @@ export function sortLeads(leads: MasterLead[], mode: SortMode): MasterLead[] {
 
     case "recomendada":
     default:
-      // Já passou por diversifyLeads equilibrando relevância, potencial comercial e alternância de redes
-      return list;
+      return diversifyLeads(list);
   }
 }

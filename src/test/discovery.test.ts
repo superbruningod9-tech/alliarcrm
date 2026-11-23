@@ -7,6 +7,7 @@ import { extractFromHtml, isSafePublicUrl } from "@/lib/discovery/crawler";
 import { parseBulkList } from "@/lib/discovery/receita";
 import { parseOverpass, buildOverpassQuery, getAdministrativeBoundary } from "@/lib/discovery/osm";
 import { searchGooglePlacesNew, searchGooglePlacesMultiQuadrant, discoverWebPresence } from "@/lib/discovery/lookup";
+import { calculateRelevanceScore, calculateCommercialScore, calculateLeadScores, sortLeads } from "@/lib/discovery/scoring";
 
 describe("telefone", () => {
   it("normaliza formatos diferentes para o mesmo E.164", () => {
@@ -166,6 +167,65 @@ describe("fusão", () => {
     expect(isValidCnpj("11.222.333/0001-81")).toBe(true);
     expect(isValidCnpj("11.111.111/1111-11")).toBe(false);
     expect(nameSimilarity("Pet Shop Amigo", "PetShop Amigo Ltda")).toBeGreaterThan(0.7);
+  });
+});
+
+describe("pontuação separada e ordenações", () => {
+  it("calcula relevância para o nicho sem penalizar empresas pequenas", () => {
+    const smallLead = {
+      key: "s1",
+      name: "Farmácia Popular do Bairro",
+      categories: ["farmácia", "drogaria"],
+      phones: [],
+      emails: [],
+      socials: {},
+      reviews: [],
+      sources: ["osm" as const],
+      fieldSources: {},
+      triggers: [],
+      score: 0,
+    };
+    const rel = calculateRelevanceScore(smallLead, ["farmácia", "drogaria"]);
+    expect(rel.score).toBeGreaterThanOrEqual(80);
+    expect(rel.reasons.length).toBeGreaterThan(0);
+    expect(rel.reasons[0]).toContain("Farmácia Popular do Bairro");
+  });
+
+  it("calcula potencial comercial Alliar identificando lacunas e oportunidades", () => {
+    const lead = {
+      key: "c1",
+      name: "Oficina Mecânica Precision",
+      website: undefined, // Sem site
+      claimed: false, // Perfil não reivindicado
+      phones: [{ e164: "+555133334444", national: "(51) 3333-4444", ddd: "51", type: "landline" as const, whatsappLikely: false, sources: ["google_maps" as const], confirmed: true }],
+      emails: [],
+      socials: {},
+      reviews: [],
+      sources: ["google_maps" as const],
+      fieldSources: {},
+      triggers: [],
+      score: 0,
+      fiscal: { cnpj: "11222333000181", porte: "ME", situacao: "ATIVA" },
+    };
+    const com = calculateCommercialScore(lead);
+    expect(com.score).toBeGreaterThanOrEqual(70);
+    expect(com.serviceOpportunities).toContain("Criação de Site Institucional / Landing Page de Alta Conversão");
+    expect(com.serviceOpportunities).toContain("Otimização e Reivindicação de Google Meu Negócio");
+    expect(com.serviceOpportunities).toContain("Estruturação de Canal Comercial no WhatsApp");
+  });
+
+  it("ordena leads pelos modos disponíveis preservando todos os itens", () => {
+    const l1 = { key: "1", name: "Alpha", relevanceScore: 90, commercialScore: 40, score: 60, categories: [], phones: [], emails: [], socials: {}, reviews: [], sources: ["osm" as const], fieldSources: {}, triggers: [] };
+    const l2 = { key: "2", name: "Beta", relevanceScore: 50, commercialScore: 95, score: 80, categories: [], phones: [], emails: [], socials: {}, reviews: [], sources: ["osm" as const], fieldSources: {}, triggers: [] };
+    const l3 = { key: "3", name: "Gamma", relevanceScore: 70, commercialScore: 70, score: 70, categories: [], phones: [], emails: [], socials: {}, reviews: [], sources: ["osm" as const], fieldSources: {}, triggers: [] };
+
+    const byRel = sortLeads([l1, l2, l3], "relevancia");
+    expect(byRel[0]!.name).toBe("Alpha");
+    expect(byRel).toHaveLength(3);
+
+    const byCom = sortLeads([l1, l2, l3], "potencial");
+    expect(byCom[0]!.name).toBe("Beta");
+    expect(byCom).toHaveLength(3);
   });
 });
 

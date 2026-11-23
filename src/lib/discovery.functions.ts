@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   bboxFromCircle, bboxFromPolygon, expandNiches, mergeRecords, lookupCnpj,
   parseBulkList, pointInPolygon, isSafePublicUrl, type MasterLead, type RawRecord, type BBox, type LatLng, type Cell,
-  searchGooglePlacesMultiQuadrant, discoverWebPresence,
+  searchGooglePlacesMultiQuadrant, discoverWebPresence, calculateLeadScores,
 } from "./discovery";
 import { lookupCnpjBatch } from "./discovery/receita";
 import { searchAllOSM, searchNominatim, getAdministrativeBoundary, type AdminBoundary } from "./discovery/osm";
@@ -368,7 +368,10 @@ export const discoverArea = createServerFn({ method: "POST" })
     );
 
     const merged = mergeRecords(allRaw);
-    const leads = merged.slice(0, 300);
+    const scoredLeads = merged.map((l) =>
+      calculateLeadScores(l, keywords, niche.relatedCategories || [], niche.cnaes || [])
+    );
+    const leads = scoredLeads.slice(0, 300);
 
     // 11. Agregação do cursor para continuidade da varredura
     const nextPending = [

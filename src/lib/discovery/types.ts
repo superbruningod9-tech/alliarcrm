@@ -108,4 +108,10 @@ export interface MasterLead {
   fieldSources: Record<string, SourceName[]>;
   triggers: string[];
   score: number;
+  // Pontuações separadas e transparência de motivos
+  relevanceScore?: number;
+  relevanceReasons?: string[];
+  commercialScore?: number;
+  commercialReasons?: string[];
+  serviceOpportunities?: string[];
 }

@@ -4,6 +4,8 @@ export * from "./quadtree";
 export * from "./synonyms";
 export * from "./merge";
 export * from "./triggers";
+export * from "./scoring";
 export * from "./osm";
 export * from "./receita";
+export * from "./lookup";
 export { extractFromHtml, isSafePublicUrl, KEY_PATHS } from "./crawler";

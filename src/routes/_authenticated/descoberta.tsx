@@ -3,7 +3,8 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Radar, MapPin, ListPlus, Loader2, MessageCircle, Phone, Mail, Globe,
-  Download, Sparkles, Building2, UserCheck, ShieldCheck, Zap, Info, Compass, Layers, CheckCircle2
+  Download, Sparkles, Building2, UserCheck, ShieldCheck, Zap, Info, Compass, Layers, CheckCircle2,
+  ArrowUpDown, Target, TrendingUp
 } from "lucide-react";
 import { seo } from "@/lib/seo";
 import { useApp } from "@/lib/store";
@@ -14,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { AreaMap, type AreaShape, type DrawMode } from "@/components/alliar/AreaMap";
 import { discoverArea, discoverBulk, saveDiscoveredLeads, enrichLeadSingle } from "@/lib/discovery.functions";
 import { expandNiches } from "@/lib/discovery/synonyms";
+import { sortLeads, type SortMode } from "@/lib/discovery/scoring";
 import type { MasterLead, Cell } from "@/lib/discovery/types";
 
 export const Route = createFileRoute("/_authenticated/descoberta")({
@@ -57,6 +59,7 @@ function DiscoveryPage() {
   const [enterpriseFilter, setEnterpriseFilter] = useState<
     "todas" | "redes" | "independentes" | "matrizes" | "filiais" | "grandes" | "pmes"
   >("todas");
+  const [sortMode, setSortMode] = useState<SortMode>("recomendada");
   const [relatedCategories, setRelatedCategories] = useState<string[]>([]);
   const [cnaes, setCnaes] = useState<string[]>([]);
   const [cursor, setCursor] = useState<{
@@ -97,15 +100,16 @@ function DiscoveryPage() {
   }, [leads]);
 
   const displayedLeads = useMemo(() => {
-    if (enterpriseFilter === "todas") return leads;
-    if (enterpriseFilter === "redes") return leads.filter((l) => l.isNetwork || l.companyType === "filial");
-    if (enterpriseFilter === "independentes") return leads.filter((l) => l.companyType === "independente");
-    if (enterpriseFilter === "matrizes") return leads.filter((l) => l.companyType === "matriz");
-    if (enterpriseFilter === "filiais") return leads.filter((l) => l.companyType === "filial");
-    if (enterpriseFilter === "grandes") return leads.filter((l) => l.sizeCategory === "grande");
-    if (enterpriseFilter === "pmes") return leads.filter((l) => l.sizeCategory === "pme");
-    return leads;
-  }, [leads, enterpriseFilter]);
+    let filtered = leads;
+    if (enterpriseFilter === "redes") filtered = leads.filter((l) => l.isNetwork || l.companyType === "filial");
+    else if (enterpriseFilter === "independentes") filtered = leads.filter((l) => l.companyType === "independente");
+    else if (enterpriseFilter === "matrizes") filtered = leads.filter((l) => l.companyType === "matriz");
+    else if (enterpriseFilter === "filiais") filtered = leads.filter((l) => l.companyType === "filial");
+    else if (enterpriseFilter === "grandes") filtered = leads.filter((l) => l.sizeCategory === "grande");
+    else if (enterpriseFilter === "pmes") filtered = leads.filter((l) => l.sizeCategory === "pme");
+
+    return sortLeads(filtered, sortMode);
+  }, [leads, enterpriseFilter, sortMode]);
 
   async function runArea(isContinue = false) {
     if (!niche.trim()) return toast.error("Informe um nicho ou segmento");
@@ -622,86 +626,111 @@ function DiscoveryPage() {
             </Button>
           </div>
 
-          {/* Filtros por Identidade Empresarial e Redes */}
-          <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl border bg-card/60">
-            <span className="text-xs font-semibold text-muted-foreground mr-1">Filtro empresarial:</span>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("todas")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "todas"
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Todas as empresas ({filterCounts.todas})
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("redes")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "redes"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Redes e franquias ({filterCounts.redes})
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("independentes")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "independentes"
-                  ? "bg-emerald-600 text-white shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Empresas independentes ({filterCounts.independentes})
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("matrizes")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "matrizes"
-                  ? "bg-purple-600 text-white shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Matrizes ({filterCounts.matrizes})
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("filiais")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "filiais"
-                  ? "bg-amber-600 text-white shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Filiais ({filterCounts.filiais})
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("grandes")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "grandes"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Grandes empresas ({filterCounts.grandes})
-            </button>
-            <button
-              type="button"
-              onClick={() => setEnterpriseFilter("pmes")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
-                enterpriseFilter === "pmes"
-                  ? "bg-teal-600 text-white shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              Pequenas e médias empresas ({filterCounts.pmes})
-            </button>
+          {/* Barra de Filtros Empresariais e Ordenação Estratégica */}
+          <div className="flex flex-col gap-2.5 p-3 rounded-xl border bg-card/60 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 border-b pb-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold text-muted-foreground mr-1">Filtro empresarial:</span>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("todas")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "todas"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  Todas ({filterCounts.todas})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("redes")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "redes"
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  Redes e franquias ({filterCounts.redes})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("independentes")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "independentes"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  Empresas independentes ({filterCounts.independentes})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("matrizes")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "matrizes"
+                      ? "bg-purple-600 text-white shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  Matrizes ({filterCounts.matrizes})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("filiais")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "filiais"
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  Filiais ({filterCounts.filiais})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("grandes")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "grandes"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  Grandes ({filterCounts.grandes})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnterpriseFilter("pmes")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    enterpriseFilter === "pmes"
+                      ? "bg-teal-600 text-white shadow-xs"
+                      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  PMEs ({filterCounts.pmes})
+                </button>
+              </div>
+
+              {/* Seletor de Ordenação */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-semibold text-muted-foreground">Ordenar:</span>
+                <select
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value as SortMode)}
+                  aria-label="Critério de ordenação de resultados"
+                  className="rounded-lg border bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs focus:ring-1 focus:ring-primary focus:outline-none cursor-pointer"
+                >
+                  <option value="recomendada">Recomendada (Relevância + Potencial + Diversidade)</option>
+                  <option value="relevancia">Mais relevantes para o nicho</option>
+                  <option value="potencial">Maior potencial comercial Alliar</option>
+                  <option value="porte">Maiores empresas</option>
+                  <option value="redes">Redes e franquias</option>
+                  <option value="independentes">Empresas independentes</option>
+                  <option value="completude">Mais informações disponíveis</option>
+                  <option value="recentes">Mais recentes descobertas</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
@@ -713,97 +742,152 @@ function DiscoveryPage() {
               return (
                 <div
                   key={l.key}
-                  className={`rounded-2xl border bg-card p-4 shadow-sm transition hover:shadow-md ${
+                  className={`rounded-2xl border bg-card p-4 shadow-sm transition hover:shadow-md flex flex-col justify-between ${
                     isSelected ? "ring-2 ring-primary border-primary" : ""
                   }`}
                 >
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-primary"
-                      checked={isSelected}
-                      onChange={() =>
-                        setSel((s) => {
-                          const n = new Set(s);
-                          n.has(l.key) ? n.delete(l.key) : n.add(l.key);
-                          return n;
-                        })
-                      }
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="truncate font-bold text-sm text-foreground">
-                            {l.displayName || l.name}
-                          </h3>
-                          {l.brandName && l.unitName && (
-                            <p className="text-[11px] text-muted-foreground truncate font-medium mt-0.5">
-                              Marca: <span className="text-foreground font-semibold">{l.brandName}</span> · {l.unitName}
+                  <div>
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-primary"
+                        checked={isSelected}
+                        onChange={() =>
+                          setSel((s) => {
+                            const n = new Set(s);
+                            n.has(l.key) ? n.delete(l.key) : n.add(l.key);
+                            return n;
+                          })
+                        }
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="truncate font-bold text-sm text-foreground">
+                              {l.displayName || l.name}
+                            </h3>
+                            {l.brandName && l.unitName && (
+                              <p className="text-[11px] text-muted-foreground truncate font-medium mt-0.5">
+                                Marca: <span className="text-foreground font-semibold">{l.brandName}</span> · {l.unitName}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <p className="truncate text-xs text-muted-foreground mt-1">
+                          {l.category ?? l.categories[0] ?? "Comércio/Serviço"}
+                          {l.neighborhood ? ` · Bairro ${l.neighborhood}` : ""}
+                          {l.city ? ` · ${l.city}` : ""}
+                          {l.address && !l.neighborhood ? ` · ${l.address}` : ""}
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Pontuações Separadas: Relevância de Nicho e Potencial Comercial Alliar */}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pt-2 border-t">
+                      <span
+                        className="rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 px-2 py-0.5 text-[11px] font-bold flex items-center gap-1"
+                        title="Aderência real ao segmento pesquisado (sem penalizar pequenas empresas)"
+                      >
+                        <Target className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                        Relevância: {l.relevanceScore ?? 80}%
+                      </span>
+                      <span
+                        className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25 px-2 py-0.5 text-[11px] font-bold flex items-center gap-1"
+                        title="Oportunidade para serviços da Alliar (Sites, Tráfego, Google Maps, WhatsApp)"
+                      >
+                        <TrendingUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                        Potencial Alliar: {l.commercialScore ?? 75}%
+                      </span>
+                    </div>
+
+                    {/* Transparência e Motivos Objetivos de Cada Score */}
+                    <div className="mt-2.5 space-y-1.5 text-xs">
+                      {/* Motivos da Relevância */}
+                      {l.relevanceReasons && l.relevanceReasons.length > 0 && (
+                        <div className="rounded-lg bg-blue-50/50 dark:bg-blue-950/20 p-2 border border-blue-100 dark:border-blue-900/30">
+                          <div className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1 text-[11px]">
+                            <Target className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                            <span>Por que é relevante:</span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-blue-800 dark:text-blue-200 leading-tight">
+                            {l.relevanceReasons[0]}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Oportunidades Concretas Alliar */}
+                      {l.serviceOpportunities && l.serviceOpportunities.length > 0 && (
+                        <div className="rounded-lg bg-amber-50/50 dark:bg-amber-950/20 p-2 border border-amber-100 dark:border-amber-900/30">
+                          <div className="font-semibold text-amber-900 dark:text-amber-300 flex items-center gap-1 text-[11px]">
+                            <TrendingUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                            <span>Oportunidades Alliar detectadas:</span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {l.serviceOpportunities.slice(0, 2).map((opp, idx) => (
+                              <span key={idx} className="rounded bg-amber-100/80 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                                ✓ {opp}
+                              </span>
+                            ))}
+                          </div>
+                          {l.commercialReasons && l.commercialReasons.length > 0 && (
+                            <p className="mt-1 text-[10.5px] text-amber-800/80 dark:text-amber-300/80 leading-tight">
+                              {l.commercialReasons[0]}
                             </p>
                           )}
                         </div>
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary shrink-0">
-                          Score {l.score}
-                        </span>
-                      </div>
-                      <p className="truncate text-xs text-muted-foreground mt-1">
-                        {l.category ?? l.categories[0] ?? "Comércio/Serviço"}
-                        {l.neighborhood ? ` · Bairro ${l.neighborhood}` : ""}
-                        {l.city ? ` · ${l.city}` : ""}
-                        {l.address && !l.neighborhood ? ` · ${l.address}` : ""}
-                      </p>
+                      )}
                     </div>
-                  </label>
 
-                  {/* Informações de contato reais */}
-                  <div className="mt-3 space-y-1.5 text-xs border-t pt-2.5">
-                    {mainPhone && (
-                      <div className="flex items-center justify-between gap-2">
-                        <a
-                          href={`tel:${mainPhone.e164}`}
-                          className="flex items-center gap-1.5 text-foreground hover:underline font-medium"
-                        >
-                          <Phone className="h-3.5 w-3.5 text-primary" />
-                          {mainPhone.national || mainPhone.e164}
-                        </a>
-                        {phoneDigits.length >= 10 && (
+                    {/* Informações de contato reais */}
+                    <div className="mt-3 space-y-1.5 text-xs border-t pt-2.5">
+                      {mainPhone && (
+                        <div className="flex items-center justify-between gap-2">
                           <a
-                            href={`https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full hover:bg-emerald-100"
+                            href={`tel:${mainPhone.e164}`}
+                            className="flex items-center gap-1.5 text-foreground hover:underline font-medium"
                           >
-                            <MessageCircle className="h-3 w-3" />
-                            WhatsApp
+                            <Phone className="h-3.5 w-3.5 text-primary" />
+                            {mainPhone.national || mainPhone.e164}
                           </a>
-                        )}
-                      </div>
-                    )}
+                          {phoneDigits.length >= 10 && (
+                            <a
+                              href={`https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full hover:bg-emerald-100"
+                            >
+                              <MessageCircle className="h-3 w-3" />
+                              WhatsApp
+                            </a>
+                          )}
+                        </div>
+                      )}
 
-                    {l.emails[0] && (
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <a href={`mailto:${l.emails[0].value}`} className="truncate hover:underline text-muted-foreground">
-                          {l.emails[0].value}
-                        </a>
-                      </div>
-                    )}
+                      {l.emails[0] && (
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <a href={`mailto:${l.emails[0].value}`} className="truncate hover:underline text-muted-foreground">
+                            {l.emails[0].value}
+                          </a>
+                        </div>
+                      )}
 
-                    {l.website && (
-                      <div className="flex items-center gap-1.5 truncate">
-                        <Globe className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                        <a href={l.website} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 underline">
-                          {l.website.replace(/^https?:\/\//, "")}
-                        </a>
-                      </div>
-                    )}
+                      {l.website && (
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Globe className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                          <a href={l.website} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 underline">
+                            {l.website.replace(/^https?:\/\//, "")}
+                          </a>
+                        </div>
+                      )}
 
-                    {l.cnpj && (
-                      <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
-                        <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <span className="truncate">CNPJ {l.cnpj}</span>
-                      </div>
-                    )}
+                      {l.cnpj && (
+                        <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="truncate">CNPJ {l.cnpj}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Badges de Identidade Empresarial e Qualificação Real */}

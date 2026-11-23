@@ -1,6 +1,7 @@
 import { haversineMeters } from "./quadtree";
 import { mergePhones } from "./phone";
 import { buildTriggers, scoreLead } from "./triggers";
+import { calculateLeadScores } from "./scoring";
 import type { CompanyType, MasterLead, RawRecord, RelationType, SizeCategory, SourceName } from "./types";
 
 export const normName = (s: string) =>
@@ -479,5 +480,6 @@ function fuse(group: RawRecord[]): MasterLead {
   };
   lead.triggers = buildTriggers(lead);
   lead.score = scoreLead(lead);
+  calculateLeadScores(lead, categories.length ? categories : [name], [], []);
   return lead;
 }

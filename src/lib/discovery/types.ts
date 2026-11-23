@@ -1,5 +1,9 @@
 export type SourceName = "osm" | "google_maps" | "receita" | "site" | "nominatim" | "manual";
 
+export type CompanyType = "matriz" | "filial" | "independente" | "desconhecido";
+export type RelationType = "matriz" | "filial" | "franquia" | "independente" | "desconhecido";
+export type SizeCategory = "grande" | "pme";
+
 export interface BBox { latMin: number; lngMin: number; latMax: number; lngMax: number }
 export interface LatLng { lat: number; lng: number }
 
@@ -10,6 +14,8 @@ export interface RawRecord {
   source: SourceName;
   sourceId?: string;          // place_id, osm id, etc.
   name: string;
+  brandName?: string;
+  unitName?: string;
   altNames?: string[];
   category?: string;
   categories?: string[];
@@ -69,6 +75,19 @@ export interface PhoneInfo {
 export interface MasterLead {
   key: string;
   name: string;
+  // Identidade empresarial e unidades
+  brandName?: string;
+  unitName?: string;
+  displayName?: string;
+  companyType?: CompanyType;
+  relationType?: RelationType;
+  isNetwork?: boolean;
+  networkName?: string;
+  networkUnitsCount?: number;
+  cnpjRoot?: string;
+  cnpjBranch?: string;
+  cnpjDigit?: string;
+  sizeCategory?: SizeCategory;
   category?: string;
   categories: string[];
   address?: string;

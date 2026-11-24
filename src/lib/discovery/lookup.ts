@@ -1,6 +1,7 @@
 import type { BBox, RawRecord } from "./types";
 import { initialCells, runQuadtree, type Cell } from "./quadtree";
-import { extractFromHtml, isSafePublicUrl } from "./crawler";
+import { searchOverpass, searchNominatim } from "./osm";
+
 
 export interface GooglePlacesNewOptions {
   query: string;
@@ -155,6 +156,131 @@ export type SearchGooglePlacesResult = RawRecord[] & {
  * com consumo de múltiplas páginas do Google Places API (New).
  */
 export async function searchGooglePlacesMultiQuadrant(
+  bbox: BBox,
+  keywords: string[],
+  city: string,
+  apiKey: string,
+  maxItems = 300,
+  initialQueue?: Cell[] | typeof fetch,
+  completedCellIds?: string[],
+  fetchImpl: typeof fetch = fetch
+): Promise<SearchGooglePlacesResult> {
+  let realInitialQueue: Cell[] | undefined = Array.isArray(initialQueue) ? initialQueue : undefined;
+  let realFetch = typeof initialQueue === "function" ? initialQueue : fetchImpl;
+
+  // If no API key provided, fallback to OSM Overpass & Nominatim search rather than returning empty.
+  if (!apiKey || !apiKey.trim()) {
+    const overpassResults = await searchOverpass(bbox, [], keywords, realFetch);
+    if (overpassResults.length > 0) {
+      const result: SearchGooglePlacesResult = Object.assign(overpassResults, {
+        pendingCells: [],
+        completedCellIds: [],
+        cellsSearched: 1,
+        truncated: false,
+      });
+      return result;
+    }
+    const nomResults = await searchNominatim(keywords.join(' '), city, bbox, 100, realFetch);
+    const result: SearchGooglePlacesResult = Object.assign(nomResults, {
+      pendingCells: [],
+      completedCellIds: [],
+      cellsSearched: 1,
+      truncated: false,
+    });
+    return result;
+  }
+
+  const primaryKeywords = keywords.slice(0, 3);
+
+  const quadRes = await runQuadtree<RawRecord>(
+    bbox,
+    async (cell) => {
+      const cellResults: RawRecord[] = [];
+      for (const kw of primaryKeywords) {
+        const query = `${kw} em ${city} Brasil`;
+        const places = await searchGooglePlacesNew(
+          { query, apiKey, bbox: cell, pageSize: 20, maxPages: 2 },
+          realFetch
+        );
+        cellResults.push(...places);
+        if (cellResults.length >= 35) break;
+      }
+      return { count: cellResults.length, items: cellResults };
+    },
+    (p) => p.sourceId || `${p.name}_${p.lat?.toFixed(3)}_${p.lng?.toFixed(3)}`,
+    undefined,
+    maxItems
+  );
+
+  return quadRes as unknown as SearchGooglePlacesResult;
+}
+(
+  bbox: BBox,
+  keywords: string[],
+  city: string,
+  apiKey: string,
+  maxItems = 300,
+  initialQueue?: Cell[] | typeof fetch,
+  completedCellIds?: string[],
+  fetchImpl: typeof fetch = fetch
+): Promise<SearchGooglePlacesResult> {
+  let realInitialQueue: Cell[] | undefined = Array.isArray(initialQueue) ? initialQueue : undefined;
+  let realFetch = typeof initialQueue === "function" ? initialQueue : fetchImpl;
+
+  // If no API key provided, fallback to OSM Overpass & Nominatim search rather than returning empty.
+  if (!apiKey || !apiKey.trim()) {
+    // Combine keywords to a generic OSM query (name search) limited by bbox.
+    // Use searchOverpass as primary source; if it returns nothing, try Nominatim.
+    const overpassResults = await searchOverpass(bbox, [], keywords, realFetch);
+    if (overpassResults.length > 0) {
+      const result: SearchGooglePlacesResult = Object.assign(overpassResults, {
+        pendingCells: [],
+        completedCellIds: [],
+        cellsSearched: 1,
+        truncated: false,
+      });
+      return result;
+    }
+    // Fallback to Nominatim name search (limited to 100 results).
+    const nomResults = await searchNominatim(keywords.join(' '), city, bbox, 100, realFetch);
+    const result: SearchGooglePlacesResult = Object.assign(nomResults, {
+      pendingCells: [],
+      completedCellIds: [],
+      cellsSearched: 1,
+      truncated: false,
+    });
+    return result;
+  }
+
+  const primaryKeywords = keywords.slice(0, 3);
+
+  const quadRes = await runQuadtree<RawRecord>(
+    bbox,
+    async (cell) => {
+      const cellResults: RawRecord[] = [];
+      for (const kw of primaryKeywords) {
+        const query = `${kw} em ${city} Brasil`;
+        const places = await searchGooglePlacesNew(
+          { query, apiKey, bbox: cell, pageSize: 20, maxPages: 2 },
+          realFetch
+        );
+        cellResults.push(...places);
+        if (cellResults.length >= 35) break;
+      }
+      return {
+        count: cellResults.length,
+        items: cellResults,
+      };
+    },
+    (p) => p.sourceId || `${p.name}_${p.lat?.toFixed(3)}_${p.lng?.toFixed(3)}`,
+    undefined,
+    maxItems
+  );
+
+  // The original implementation returned the raw quadRes structure. Keep compatibility.
+  return quadRes as unknown as SearchGooglePlacesResult;
+}
+(
   bbox: BBox,
   keywords: string[],
   city: string,

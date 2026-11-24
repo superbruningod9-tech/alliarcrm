@@ -93,3 +93,101 @@ export async function b2bRequestContext(request: Request): Promise<B2BContext> {
   if (error || !data.user) throw Error('Unauthorized');
   return { supabase, userId: data.user.id };
 }
+
+/**
+ * Enriquecimento B2B gratuito sob demanda (BrasilAPI + Crawler + OSM).
+ * Não depende de worker offline, executa de forma síncrona para a interface.
+ */
+export async function getCompanyData(cnpj?: string, domain?: string, name?: string, city?: string) {
+  let fiscal: any = null;
+  let siteDiagnosis: any = null;
+  const phones: string[] = [];
+  let whatsapp: string | null = null;
+  let email: string | null = null;
+  let socials: Record<string, string> = {};
+  let qsa: any = null;
+
+  // 1. BrasilAPI via CNPJ
+  const cleanCnpj = cnpj?.replace(/\D/g, "");
+  if (cleanCnpj && cleanCnpj.length === 14) {
+    try {
+      const { lookupCnpj } = await import("./discovery/receita");
+      fiscal = await lookupCnpj(cleanCnpj);
+      if (fiscal) {
+        if (fiscal.telefones) phones.push(...fiscal.telefones);
+        if (fiscal.email) email = fiscal.email;
+        if (fiscal.socios?.length) qsa = fiscal.socios[0];
+      }
+    } catch (e) {
+      console.warn("[getCompanyData] Erro ao consultar CNPJ:", e);
+    }
+  }
+
+  // 2. Crawler de site se domain ou website disponível
+  let targetUrl = domain ? (domain.startsWith("http") ? domain : `https://${domain}`) : undefined;
+  if (!targetUrl && name && city) {
+    try {
+      const { searchNominatim } = await import("./discovery/osm");
+      const nom = await searchNominatim(name, city, 2);
+      if (nom[0]?.website) targetUrl = nom[0].website;
+      if (nom[0]?.phones?.length) phones.push(...nom[0].phones);
+    } catch {}
+  }
+
+  if (targetUrl) {
+    try {
+      const { crawlSite } = await import("./discovery/crawler");
+      const { record, diagnosis } = await crawlSite(targetUrl);
+      siteDiagnosis = diagnosis;
+      if (record.phones) phones.push(...record.phones);
+      if (record.whatsapp?.[0]) whatsapp = record.whatsapp[0];
+      if (record.emails?.[0] && !email) email = record.emails[0];
+      if (record.socials) socials = { ...socials, ...record.socials };
+      if (!cleanCnpj && record.cnpj) {
+        const { lookupCnpj } = await import("./discovery/receita");
+        fiscal = await lookupCnpj(record.cnpj);
+        if (fiscal?.socios?.length) qsa = fiscal.socios[0];
+      }
+    } catch (e) {
+      console.warn("[getCompanyData] Erro no crawler do site:", e);
+    }
+  }
+
+  // 3. Google Places API (New) ou Presença Web Gratuita se faltar telefone
+  if (phones.length === 0 && name) {
+    const googleKey = process.env.GOOGLE_PLACES_API_KEY || process.env.VITE_GOOGLE_PLACES_API_KEY;
+    if (googleKey) {
+      try {
+        const { searchGooglePlacesNew } = await import("./discovery/lookup");
+        const query = city ? `${name} em ${city} Brasil` : name;
+        const gPlaces = await searchGooglePlacesNew({ query, apiKey: googleKey, pageSize: 1 });
+        if (gPlaces[0]) {
+          if (gPlaces[0].phones?.length) phones.push(...gPlaces[0].phones);
+          if (gPlaces[0].website && !targetUrl) targetUrl = gPlaces[0].website;
+        }
+      } catch {}
+    } else {
+      try {
+        const { discoverWebPresence } = await import("./discovery/lookup");
+        const web = await discoverWebPresence(name, city, targetUrl);
+        if (web.phones.length) phones.push(...web.phones);
+        if (web.whatsapp && !whatsapp) whatsapp = web.whatsapp;
+        if (web.website && !targetUrl) targetUrl = web.website;
+        if (web.emails.length && !email) email = web.emails[0]!;
+        if (web.socials) socials = { ...socials, ...web.socials };
+      } catch {}
+    }
+  }
+
+  return {
+    phones: Array.from(new Set(phones)),
+    whatsapp: whatsapp || phones.find((p) => p.replace(/\D/g, "").length >= 10) || null,
+    email,
+    socials,
+    qsa: qsa ? (qsa.nome ? `${qsa.nome} (${qsa.qualificacao || "Sócio"})` : qsa) : null,
+    fiscal,
+    siteDiagnosis,
+    website: targetUrl,
+    domain: targetUrl ? targetUrl.replace(/^https?:\/\//, "").replace(/\/.*$/, "") : null,
+  };
+}

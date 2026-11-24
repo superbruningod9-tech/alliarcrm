@@ -193,5 +193,45 @@ export interface MasterLead {
   enrichedAt?: string;
   completeness?: CompletenessReport;
   contactsDetailed?: ContactChannels;
+  contactChannels?: ContactChannels;
   provenance?: Record<string, FieldMeta>;
+  qualityStatus?: Record<string, FieldMeta>;
+
+  // Atualização inteligente, preservação de dados e rastreamento
+  lastDiscoveredAt?: string;
+  lastEnrichedAt?: string;
+  lastVerifiedAt?: string;
+  updateStatus?: LeadUpdateStatus;
+  manualOverrides?: Record<string, boolean>;
+  conflicts?: Record<string, ConflictDetail>;
+}
+
+export type LeadUpdateStatus = "nova" | "atualizada" | "inalterada" | "desatualizada" | "conflito";
+
+export interface ConflictDetail {
+  field: string;
+  currentValue: any;
+  incomingValue: any;
+  incomingSource: string;
+  detectedAt: string;
+}
+
+export interface UpdateReport {
+  totalSearched: number;
+  newLeadsCount: number;
+  updatedLeadsCount: number;
+  unchangedLeadsCount: number;
+  newBranchesCount: number;
+  newContactsCount: number;
+  complementedFieldsCount: number;
+  duplicatesAvoided: number;
+  conflictsCount: number;
+  failedQueriesCount: number;
+  mode: "data_only" | "full_discovery";
+  timestamp: string;
+  details?: {
+    newLeadNames: string[];
+    updatedLeadNames: string[];
+    conflictLeadNames: string[];
+  };
 }

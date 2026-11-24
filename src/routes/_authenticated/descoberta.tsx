@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import {
   Radar, MapPin, ListPlus, Loader2, MessageCircle, Phone, Mail, Globe,
   Download, Sparkles, Building2, UserCheck, ShieldCheck, Zap, Info, Compass, Layers, CheckCircle2,
-  ArrowUpDown, Target, TrendingUp, ChevronDown, ChevronUp, Check, AlertCircle, FileText, Share2, Activity
+  ArrowUpDown, Target, TrendingUp, ChevronDown, ChevronUp, Check, AlertCircle, FileText, Share2, Activity,
+  RefreshCw, History, AlertTriangle, Clock, CheckSquare
 } from "lucide-react";
 import { seo } from "@/lib/seo";
 import { useApp } from "@/lib/store";
@@ -19,11 +20,13 @@ import {
   saveDiscoveredLeads,
   enrichLeadSingle,
   enrichDiscoveredLeadsBatch,
+  updateDiscoveredSearch,
+  refreshSingleBusiness,
 } from "@/lib/discovery.functions";
 import { expandNiches } from "@/lib/discovery/synonyms";
 import { sortLeads, type SortMode } from "@/lib/discovery/scoring";
 import type { Cell } from "@/lib/discovery/quadtree";
-import type { MasterLead } from "@/lib/discovery/types";
+import type { MasterLead, UpdateReport, LeadUpdateStatus } from "@/lib/discovery/types";
 
 export const Route = createFileRoute("/_authenticated/descoberta")({
   head: () => seo("Motor de Descoberta · Alliar CRM", "Encontre empresas reais por mapa, nicho ou lista, com enriquecimento e envio direto ao funil."),
@@ -60,6 +63,12 @@ function DiscoveryPage() {
   const [enrichingBatch, setEnrichingBatch] = useState(false);
   const [enrichProgress, setEnrichProgress] = useState("");
   const [enrichStats, setEnrichStats] = useState<{ cnpjs: number; whatsapps: number; sites: number } | null>(null);
+  const [updatingSearch, setUpdatingSearch] = useState(false);
+  const [updateReport, setUpdateReport] = useState<UpdateReport | null>(null);
+  const [lastUpdatedDate, setLastUpdatedDate] = useState<string | null>(null);
+  const [updateFilter, setUpdateFilter] = useState<
+    "todas" | "novas" | "atualizadas" | "desatualizadas" | "incompletas" | "conflitos"
+  >("todas");
   const [expandedLeadKey, setExpandedLeadKey] = useState<string | null>(null);
   const [leads, setLeads] = useState<MasterLead[]>([]);
   const [pending, setPending] = useState<string[]>([]);
@@ -108,6 +117,22 @@ function DiscoveryPage() {
     };
   }, [leads]);
 
+  const updateCounts = useMemo(() => {
+    return {
+      todas: leads.length,
+      novas: leads.filter((l) => l.updateStatus === "nova").length,
+      atualizadas: leads.filter((l) => l.updateStatus === "atualizada").length,
+      desatualizadas: leads.filter((l) => {
+        if (l.updateStatus === "desatualizada") return true;
+        if (!l.lastVerifiedAt && !l.lastDiscoveredAt) return false;
+        const dt = new Date(l.lastVerifiedAt || l.lastDiscoveredAt || "").getTime();
+        return (Date.now() - dt) > 30 * 24 * 60 * 60 * 1000;
+      }).length,
+      incompletas: leads.filter((l) => (l.completeness?.overallScore ?? 100) < 60).length,
+      conflitos: leads.filter((l) => l.conflicts && Object.keys(l.conflicts).length > 0).length,
+    };
+  }, [leads]);
+
   const displayedLeads = useMemo(() => {
     let filtered = leads;
     if (enterpriseFilter === "redes") filtered = leads.filter((l) => l.isNetwork || l.companyType === "filial");
@@ -117,8 +142,24 @@ function DiscoveryPage() {
     else if (enterpriseFilter === "grandes") filtered = leads.filter((l) => l.sizeCategory === "grande");
     else if (enterpriseFilter === "pmes") filtered = leads.filter((l) => l.sizeCategory === "pme");
 
+    if (updateFilter === "novas") {
+      filtered = filtered.filter((l) => l.updateStatus === "nova");
+    } else if (updateFilter === "atualizadas") {
+      filtered = filtered.filter((l) => l.updateStatus === "atualizada");
+    } else if (updateFilter === "desatualizadas") {
+      filtered = filtered.filter((l) => {
+        if (l.updateStatus === "desatualizada") return true;
+        const dt = new Date(l.lastVerifiedAt || l.lastDiscoveredAt || "").getTime();
+        return (Date.now() - dt) > 30 * 24 * 60 * 60 * 1000;
+      });
+    } else if (updateFilter === "incompletas") {
+      filtered = filtered.filter((l) => (l.completeness?.overallScore ?? 100) < 60);
+    } else if (updateFilter === "conflitos") {
+      filtered = filtered.filter((l) => l.conflicts && Object.keys(l.conflicts).length > 0);
+    }
+
     return sortLeads(filtered, sortMode);
-  }, [leads, enterpriseFilter, sortMode]);
+  }, [leads, enterpriseFilter, updateFilter, sortMode]);
 
   async function runArea(isContinue = false) {
     if (!niche.trim()) return toast.error("Informe um nicho ou segmento");
@@ -286,6 +327,79 @@ function DiscoveryPage() {
     } catch (err) {
       console.error(err);
       toast.error(`Falha ao enriquecer ${lead.name}.`);
+    }
+  }
+
+  /** Atualização Inteligente da Pesquisa (Completa ou Somente Dados) */
+  async function handleUpdateSearch(updateMode: "data_only" | "full_discovery") {
+    if (!leads.length) return toast.info("Execute uma pesquisa antes de atualizar");
+    setUpdatingSearch(true);
+    toast.info(
+      updateMode === "full_discovery"
+        ? "Reexecutando varredura das fontes e buscando novas empresas e filiais..."
+        : "Atualizando dados cadastrais e contatos das empresas existentes..."
+    );
+
+    const area = shape ?? { type: "circle" as const, center: CITIES[city]!, radiusKm };
+
+    try {
+      const res = await updateDiscoveredSearch({
+        data: {
+          mode: updateMode,
+          existingLeads: leads as any,
+          searchParams: updateMode === "full_discovery" ? {
+            niches: niche.split(",").map((s) => s.trim()).filter(Boolean),
+            expand,
+            area: area as never,
+            city,
+            enrich: false,
+          } : undefined,
+        },
+      });
+
+      if (res.leads) {
+        setLeads(res.leads);
+        setUpdateReport(res.report);
+        const timeStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        setLastUpdatedDate(timeStr);
+
+        if (updateMode === "full_discovery") {
+          toast.success(
+            `Atualização concluída! +${res.report.newLeadsCount} nova(s) empresa(s), ${res.report.updatedLeadsCount} atualizada(s), ${res.report.duplicatesAvoided} duplicadas evitadas.`
+          );
+        } else {
+          toast.success(
+            `Dados atualizados! ${res.report.updatedLeadsCount} empresa(s) com dados complementados.`
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[handleUpdateSearch] Erro:", err);
+      toast.error("Falha ao atualizar a pesquisa.");
+    } finally {
+      setUpdatingSearch(false);
+    }
+  }
+
+  /** Atualização individual de dados de uma única empresa */
+  async function handleRefreshSingle(lead: MasterLead) {
+    try {
+      toast.info(`Atualizando dados cadastrais e de contato de ${lead.name}...`);
+      const res = await refreshSingleBusiness({
+        data: { lead: lead as any, forceRefresh: true },
+      });
+
+      if (res.lead) {
+        setLeads((prev) => prev.map((l) => (l.key === lead.key ? res.lead : l)));
+        if (res.updated) {
+          toast.success(`Dados de ${lead.name} atualizados e complementados com sucesso!`);
+        } else {
+          toast.info(`Dados de ${lead.name} já estavam com as informações mais recentes.`);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(`Não foi possível atualizar ${lead.name}.`);
     }
   }
 
@@ -612,7 +726,59 @@ function DiscoveryPage() {
 
       {leads.length > 0 && (
         <div className="space-y-3.5">
-          {/* Ações em lote e continuidade */}
+          {/* Relatório de Atualização da Pesquisa */}
+          {updateReport && (
+            <div className="rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-xs text-foreground space-y-3 shadow-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-500/20 pb-2.5">
+                <div className="flex items-center gap-2 font-bold text-sm text-blue-900 dark:text-blue-300">
+                  <RefreshCw className="h-4 w-4 text-blue-600 animate-spin-reverse" />
+                  <span>
+                    Relatório da Atualização ({updateReport.mode === "full_discovery" ? "Redescoberta Completa" : "Atualização Rápida de Dados"})
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> {new Date(updateReport.timestamp).toLocaleTimeString("pt-BR")}
+                  </span>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setUpdateReport(null)}>
+                    Fechar
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center text-xs">
+                <div className="p-2.5 rounded-xl bg-background border shadow-2xs">
+                  <span className="block text-muted-foreground text-[11px] font-medium">Novas Empresas</span>
+                  <span className="text-lg font-extrabold text-emerald-600">+{updateReport.newLeadsCount}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-background border shadow-2xs">
+                  <span className="block text-muted-foreground text-[11px] font-medium">Empresas Atualizadas</span>
+                  <span className="text-lg font-extrabold text-blue-600">{updateReport.updatedLeadsCount}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-background border shadow-2xs">
+                  <span className="block text-muted-foreground text-[11px] font-medium">Novas Filiais Identificadas</span>
+                  <span className="text-lg font-extrabold text-purple-600">{updateReport.newBranchesCount}</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-background border shadow-2xs">
+                  <span className="block text-muted-foreground text-[11px] font-medium">Duplicações Evitadas</span>
+                  <span className="text-lg font-extrabold text-amber-600">{updateReport.duplicatesAvoided}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-muted-foreground">
+                <span>Novos contatos adicionados: <strong className="text-foreground">{updateReport.newContactsCount}</strong></span>
+                <span>Campos complementados: <strong className="text-foreground">{updateReport.complementedFieldsCount}</strong></span>
+                <span>Empresas inalteradas: <strong className="text-foreground">{updateReport.unchangedLeadsCount}</strong></span>
+                {updateReport.conflictsCount > 0 && (
+                  <span className="text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" /> {updateReport.conflictsCount} divergência(s) detectada(s)
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Barra de Ações em Lote e Atualização Inteligente */}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -623,6 +789,39 @@ function DiscoveryPage() {
             >
               {sel.size === displayedLeads.length ? "Desmarcar todos" : "Selecionar todos"}
             </Button>
+
+            {/* BOTÃO ATUALIZAR PESQUISA (COMPLETO) */}
+            <Button
+              size="sm"
+              variant="default"
+              disabled={updatingSearch || busy}
+              onClick={() => handleUpdateSearch("full_discovery")}
+              className="gap-1.5 font-bold shadow-xs bg-blue-600 hover:bg-blue-700 text-white"
+              title="Reexecuta a varredura geográfica incorporando novas empresas e filiais, sem duplicar as existentes"
+            >
+              {updatingSearch ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Atualizar pesquisa
+            </Button>
+
+            {/* BOTÃO ATUALIZAR DADOS (RÁPIDO) */}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={updatingSearch || busy}
+              onClick={() => handleUpdateSearch("data_only")}
+              className="gap-1.5 font-semibold border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-500/10"
+              title="Atualiza e complementa os dados cadastrais das empresas já encontradas nesta pesquisa"
+            >
+              <Zap className="h-3.5 w-3.5 text-blue-600" />
+              Atualizar apenas dados
+            </Button>
+
+            {lastUpdatedDate && (
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1 px-1">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                Atualizado às {lastUpdatedDate}
+              </span>
+            )}
 
             {cursor?.hasMore && (
               <Button
@@ -675,11 +874,85 @@ function DiscoveryPage() {
             </Button>
           </div>
 
-          {/* Barra de Filtros Empresariais e Ordenação Estratégica */}
+          {/* Barra de Filtros Empresariais, Situação de Atualização e Ordenação */}
           <div className="flex flex-col gap-2.5 p-3 rounded-xl border bg-card/60 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2.5 border-b pb-2">
+            {/* Linha 1: Filtros de Situação e Atualização */}
+            <div className="flex flex-wrap items-center gap-1.5 border-b pb-2">
+              <span className="text-xs font-semibold text-muted-foreground mr-1">Situação / Atualização:</span>
+              <button
+                type="button"
+                onClick={() => setUpdateFilter("todas")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                  updateFilter === "todas"
+                    ? "bg-secondary text-secondary-foreground shadow-xs font-bold"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Todas ({updateCounts.todas})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpdateFilter("novas")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                  updateFilter === "novas"
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Novas nesta atualização ({updateCounts.novas})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpdateFilter("atualizadas")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                  updateFilter === "atualizadas"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Atualizadas ({updateCounts.atualizadas})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpdateFilter("desatualizadas")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                  updateFilter === "desatualizadas"
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Dados desatualizados ({updateCounts.desatualizadas})
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpdateFilter("incompletas")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                  updateFilter === "incompletas"
+                    ? "bg-purple-600 text-white shadow-xs"
+                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Incompletas ({updateCounts.incompletas})
+              </button>
+              {updateCounts.conflitos > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setUpdateFilter("conflitos")}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition cursor-pointer ${
+                    updateFilter === "conflitos"
+                      ? "bg-red-600 text-white shadow-xs"
+                      : "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
+                  }`}
+                >
+                  Divergências ({updateCounts.conflitos})
+                </button>
+              )}
+            </div>
+
+            {/* Linha 2: Filtros Empresariais e Ordenação */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-semibold text-muted-foreground mr-1">Filtro empresarial:</span>
+                <span className="text-xs font-semibold text-muted-foreground mr-1">Porte e estrutura:</span>
                 <button
                   type="button"
                   onClick={() => setEnterpriseFilter("todas")}
@@ -821,21 +1094,43 @@ function DiscoveryPage() {
                               </p>
                             )}
                           </div>
-                          {l.completeness && (
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold border flex items-center gap-1 ${
-                                l.completeness.overallScore >= 80
-                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
-                                  : l.completeness.overallScore >= 50
-                                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-300 dark:border-blue-800"
-                                  : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800"
-                              }`}
-                              title={`Completude da ficha: ${l.completeness.overallScore}% (${l.completeness.status})`}
-                            >
-                              <ShieldCheck className="h-3 w-3" />
-                              Ficha {l.completeness.overallScore}%
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {l.updateStatus === "nova" && (
+                              <span className="rounded-full px-2 py-0.5 text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                                <Sparkles className="h-2.5 w-2.5" /> Nova
+                              </span>
+                            )}
+                            {l.updateStatus === "atualizada" && (
+                              <span className="rounded-full px-2 py-0.5 text-[10px] font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800 flex items-center gap-1">
+                                <Check className="h-2.5 w-2.5" /> Atualizada
+                              </span>
+                            )}
+                            {l.updateStatus === "conflito" && (
+                              <span className="rounded-full px-2 py-0.5 text-[10px] font-extrabold bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300 border border-red-300 dark:border-red-800 flex items-center gap-1">
+                                <AlertTriangle className="h-2.5 w-2.5" /> Divergência
+                              </span>
+                            )}
+                            {l.updateStatus === "desatualizada" && (
+                              <span className="rounded-full px-2 py-0.5 text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                                <Clock className="h-2.5 w-2.5" /> Desatualizada
+                              </span>
+                            )}
+                            {l.completeness && (
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold border flex items-center gap-1 ${
+                                  l.completeness.overallScore >= 80
+                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                                    : l.completeness.overallScore >= 50
+                                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-300 dark:border-blue-800"
+                                    : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800"
+                                }`}
+                                title={`Completude da ficha: ${l.completeness.overallScore}% (${l.completeness.status})`}
+                              >
+                                <ShieldCheck className="h-3 w-3" />
+                                Ficha {l.completeness.overallScore}%
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <p className="truncate text-xs text-muted-foreground mt-1">
                           {l.category ?? l.categories[0] ?? "Comércio/Serviço"}
@@ -1058,7 +1353,26 @@ function DiscoveryPage() {
                     )}
                   </div>
 
-                  {/* Botão Expandir Ficha Completa & Reenriquecer */}
+                  {/* Botões de Atualização Inteligente */}
+          <div className="flex items-center gap-2 mb-4">
+            <button
+              type="button"
+              disabled={updatingSearch}
+              onClick={() => handleUpdateSearch('data_only')}
+              className={`px-3 py-1 rounded text-sm font-medium flex items-center gap-1 transition-colors ${updatingSearch ? 'bg-gray-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white'} `}
+            >
+              Atualizar Dados
+            </button>
+            <button
+              type="button"
+              disabled={updatingSearch}
+              onClick={() => handleUpdateSearch('full_discovery')}
+              className={`px-3 py-1 rounded text-sm font-medium flex items-center gap-1 transition-colors ${updatingSearch ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700 text-white'} `}
+            >
+              Atualizar Pesquisa
+            </button>
+          </div>
+
                   <div className="mt-2.5 pt-2 border-t flex items-center justify-between">
                     <button
                       type="button"
@@ -1077,20 +1391,64 @@ function DiscoveryPage() {
                         </>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => runSingleLeadEnrich(l)}
-                      className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
-                      title="Atualizar dados desta empresa"
-                    >
-                      <Zap className="h-3 w-3 text-amber-500" />
-                      Reenriquecer
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRefreshSingle(l)}
+                        className="text-[11px] font-medium text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 flex items-center gap-1 cursor-pointer bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 transition"
+                        title="Atualizar dados desta empresa em tempo real"
+                      >
+                        <RefreshCw className="h-3 w-3 text-blue-600" />
+                        Atualizar dados
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => runSingleLeadEnrich(l)}
+                        className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
+                        title="Reenriquecer dados cadastrais via BrasilAPI / IA"
+                      >
+                        <Zap className="h-3 w-3 text-amber-500" />
+                        Reenriquecer
+                      </button>
+                    </div>
                   </div>
 
                   {/* Painel Expansível de Detalhes, Completude e Procedência */}
                   {expandedLeadKey === l.key && (
                     <div className="mt-3 p-3 rounded-xl bg-muted/40 border space-y-2.5 text-xs text-foreground">
+                      {/* Carimbos de Atualização */}
+                      <div className="flex flex-wrap items-center gap-3 text-[10.5px] text-muted-foreground border-b pb-2">
+                        {l.lastDiscoveredAt && (
+                          <span>Descoberta: <strong className="text-foreground">{new Date(l.lastDiscoveredAt).toLocaleTimeString("pt-BR")}</strong></span>
+                        )}
+                        {l.lastVerifiedAt && (
+                          <span>Última verificação: <strong className="text-foreground">{new Date(l.lastVerifiedAt).toLocaleTimeString("pt-BR")}</strong></span>
+                        )}
+                        {l.lastEnrichedAt && (
+                          <span>Enriquecimento: <strong className="text-foreground">{new Date(l.lastEnrichedAt).toLocaleTimeString("pt-BR")}</strong></span>
+                        )}
+                      </div>
+
+                      {/* Alerta de Divergências / Conflitos */}
+                      {l.conflicts && l.conflicts.length > 0 && (
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200 space-y-1.5">
+                          <div className="font-bold flex items-center gap-1.5 text-amber-900 dark:text-amber-300">
+                            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                            <span>Divergência detectada com dados existentes:</span>
+                          </div>
+                          <div className="space-y-1 text-[11px]">
+                            {l.conflicts.map((c, i) => (
+                              <div key={i} className="rounded bg-background/80 p-1.5 border border-amber-300 dark:border-amber-800 text-[10.5px]">
+                                <div className="font-semibold text-foreground">Campo: {c.field}</div>
+                                <div className="text-muted-foreground">Valor mantido: <strong className="text-foreground">{String(c.currentValue)}</strong></div>
+                                <div className="text-muted-foreground">Valor novo descartado ({c.incomingSource}): <s>{String(c.incomingValue)}</s></div>
+                                {c.reason && <div className="text-amber-700 dark:text-amber-300 italic">{c.reason}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* 1. Completude em 4 seções */}
                       {l.completeness && (
                         <div className="space-y-1.5 border-b pb-2.5">

@@ -86,33 +86,46 @@ export async function searchOverpass(
   const query = buildOverpassQuery(b, selectors, keywords);
   const body = "data=" + encodeURIComponent(query);
 
-  for (const url of ENDPOINTS) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 6500);
-    try {
-      const r = await fetchImpl(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "AlliarCRM-B2B/1.0 (https://alliar.com.br; dev@alliar.com.br)",
-          "Referer": "https://alliar.com.br",
-          "Accept": "application/json",
-        },
-        body,
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      if (r.ok) {
-        const json = await r.json();
-        const records = parseOverpass(json);
-        if (records.length > 0) return records;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (const url of ENDPOINTS) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6500);
+      try {
+        const r = await fetchImpl(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "AlliarCRM-B2B/1.0 (https://alliar.com.br; dev@alliar.com.br)",
+            "Referer": "https://alliar.com.br",
+            "Accept": "application/json",
+          },
+          body,
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (r.ok) {
+          const json = await r.json();
+          const records = parseOverpass(json);
+          if (records.length > 0) return records;
+        } else if (r.status === 429) {
+          // Rate‑limit – backoff and retry
+          const delay = Math.pow(2, attempt) * 500; // 500ms, 1s, 2s
+          await new Promise((res) => setTimeout(res, delay));
+        }
+      } catch (e) {
+        clearTimeout(timer);
+        // Network / abort – retry with backoff
+        const delay = Math.pow(2, attempt) * 500;
+        await new Promise((res) => setTimeout(res, delay));
       }
-    } catch {
-      clearTimeout(timer);
     }
   }
+  // All attempts exhausted – return empty and let caller log.
+  console.warn("[Overpass] Todas as tentativas falharam ou nenhum resultado encontrado.");
   return [];
 }
+
 
 /**
  * Consulta geográfica via Nominatim (OpenStreetMap) com suporte a viewbox restrito por quadrante

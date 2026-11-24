@@ -46,7 +46,26 @@ import {
   type ProspectCompany,
 } from "@/lib/prospecting";
 
+import { createFileRoute } from "@tanstack/react-router";
+import { seo } from "@/lib/seo";
+import { DiscoveryPage } from "@/routes/_authenticated/descoberta";
+
 export const Route = createFileRoute("/_authenticated/prospeccao")({
+  head: () =>
+    seo(
+      "Prospecção Ativa B2B · Alliar CRM",
+      "Busque empresas reais pelo Google Maps e por CNPJ — importe direto para o funil com dados verificados da Receita Federal."
+    ),
+  component: ProspeccaoPage,
+});
+
+function ProspeccaoPage() {
+  // Reuse the Discovery engine as the central flow.
+  // This page now simply renders the Discovery UI, sharing the same backend functions,
+  // history and lead IDs. No duplicated state or tables are created.
+  return <DiscoveryPage />;
+}
+ = createFileRoute("/_authenticated/prospeccao")({
   head: () =>
     seo(
       "Prospecção Ativa B2B · Alliar CRM",

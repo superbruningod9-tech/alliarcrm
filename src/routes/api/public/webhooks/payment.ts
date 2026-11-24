@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { processPaymentWebhook } from "@/lib/integrations";
+import { jsonSuccess, validateWebhook, getTenantId } from "@/middleware/webhookSecurity";
+import { z } from "zod";
 
 export const Route = createFileRoute("/api/public/webhooks/payment")({
   server: {

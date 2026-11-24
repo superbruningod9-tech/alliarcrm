@@ -28,6 +28,9 @@ import { toast } from "sonner";
 import { VoiceButton } from "./Voice";
 import { PixDialog } from "./PixDialog";
 import { TempBadge } from "./Badges";
+import { formatPhone } from "@/lib/phone";
+import { Instagram, Linkedin } from "lucide-react";
+import { getCompanyDataFn } from "@/lib/b2b.functions";
 
 const ICON = { msg: MessageCircle, call: Phone, proposta: FileText, audio: Mic, pix: QrCode, nota: StickyNote };
 
@@ -44,6 +47,9 @@ export function LeadSheet() {
   const [editTemp, setEditTemp] = useState<Lead["temp"]>("morno");
   const [editPriority, setEditPriority] = useState<Lead["priority"]>("média");
   const [editStage, setEditStage] = useState<Lead["stage"]>("novo");
+  // Estado de carregamento para enriquecimento
+  const [enriching, setEnriching] = useState(false);
+
 
   // Date fields
   const [firstContact, setFirstContact] = useState("");
@@ -184,7 +190,50 @@ export function LeadSheet() {
     }
   }
 
-  async function handleSaveEdit() {
+
+  async function handleEnrich() {
+    if (!lead || !tenantId) return;
+    const cnpj = (lead.cnpj || "").replace(/\D/g, "");
+    const domain = lead.domain?.trim();
+    if (!cnpj && !domain && !lead.name) {
+      toast.error("Lead sem dados mínimos para enriquecimento.");
+      return;
+    }
+    setEnriching(true);
+    try {
+      const data = await getCompanyDataFn({
+        data: { cnpj, domain, name: lead.name, city: lead.city }
+      });
+      if (!data) throw new Error("Nenhum dado retornado.");
+
+      // Espera estrutura retornada: phones, whatsapp, email, qsa, socials, fiscal
+      const enriched = {
+        ...lead,
+        phone: data.phones?.[0] ?? lead.phone,
+        qsa: data.qsa ?? lead.qsa,
+        socials: { ...(lead.socials || {}), ...(data.socials || {}) },
+        email: data.email ?? lead.email,
+        porte: data.fiscal?.porte ?? (lead as any).porte,
+        capital_social: data.fiscal?.capitalSocial ?? (lead as any).capital_social,
+      };
+
+      const { error: updError } = await supabase
+        .from("leads")
+        .update(enriched)
+        .eq("id", lead.id)
+        .single();
+      if (updError) console.warn("Aviso ao salvar lead no Supabase:", updError);
+
+      updateLead(lead.id, enriched);
+      toast.success("Dados reais enriquecidos com sucesso!");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao enriquecer.");
+    } finally {
+      setEnriching(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
     if (!lead || !tenantId) return;
     setSavingEdit(true);
     try {
@@ -367,17 +416,76 @@ export function LeadSheet() {
                 <Button size="sm" onClick={() => setPix(true)} className="gap-1 text-xs">
                   <QrCode className="size-3.5" /> Proposta + PIX
                 </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1 text-xs"
-                  onClick={() => {
-                    updateLead(lead.id, { stage: "contato" });
-                    addEvent(lead.id, { kind: "nota", text: "Retorno realizado e registrado." });
-                  }}
-                >
-                  Em Contato
-                </Button>
+                {/* Dados Enriquecidos */}
+                {lead.email && (
+                  <div className="mt-1 text-sm">
+                    <a href={`mailto:${lead.email}`} className="underline text-blue-600">
+                      {lead.email}
+                    </a>
+                  </div>
+                )}
+                {lead.phone && (
+                  <div className="mt-1 text-sm">
+                    <a href={`tel:${lead.phone}`} className="underline text-blue-600">
+                      {formatPhone(lead.phone)}
+                    </a>
+                  </div>
+                )}
+                {lead.socials?.whatsapp && (
+                  <div className="mt-1 text-sm">
+                    <a
+                      href={`https://wa.me/${lead.socials.whatsapp.replace(/\D/g, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-green-600"
+                    >
+                      WhatsApp
+                    </a>
+                  </div>
+                )}
+                {lead.socials?.instagram && (
+                  <div className="mt-1 flex items-center gap-1 text-sm">
+                    <Instagram className="size-4" />
+                    <a href={lead.socials.instagram} target="_blank" rel="noopener noreferrer" className="underline">
+                      Instagram
+                    </a>
+                  </div>
+                )}
+                {lead.socials?.linkedin && (
+                  <div className="mt-1 flex items-center gap-1 text-sm">
+                    <Linkedin className="size-4" />
+                    <a href={lead.socials.linkedin} target="_blank" rel="noopener noreferrer" className="underline">
+                      LinkedIn
+                    </a>
+                  </div>
+                )}
+                {lead.qsa && (
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    <strong>Sócio/Decisor:</strong> {lead.qsa.nome ?? lead.qsa}
+                  </div>
+                )}
+
+<Button
+  size="sm"
+  variant="secondary"
+  className="gap-1 text-xs"
+  onClick={handleEnrich}
+  disabled={enriching}
+>
+  {enriching ? "Enriquecendo…" : "Completar dados grátis"}
+</Button>
+
+<Button
+  size="sm"
+  variant="secondary"
+  className="gap-1 text-xs"
+  onClick={() => {
+    updateLead(lead.id, { stage: "contato" });
+    addEvent(lead.id, { kind: "nota", text: "Retorno realizado e registrado." });
+  }}
+>
+  Em Contato
+</Button>
                 <label className="flex items-center text-xs font-medium ml-auto">
                   Mudar Etapa:
                   <select

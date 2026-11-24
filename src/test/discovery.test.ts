@@ -16,6 +16,12 @@ import {
   enrichSingleLead,
   enrichLeadsBatch,
 } from "@/lib/discovery/enrichment";
+import {
+  isSameBusinessUnit,
+  mergeSingleLeadUpdate,
+  smartMergeLeads,
+  refreshSingleLeadData,
+} from "@/lib/discovery/smart-update";
 import type { MasterLead } from "@/lib/discovery/types";
 
 describe("telefone", () => {

@@ -10,3 +10,18 @@ export const runB2BEnrichment = createServerFn({ method: 'POST' }).middleware([r
 export const getB2BJobs = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator(input => tenant.extend({ page: z.number().int().min(1).max(10000).default(1), size: z.number().int().min(1).max(100).default(10) }).parse(input)).handler(async ({ context, data }) => (await import('./b2b.server')).listB2BJobs(context, data));
 export const importB2BRows = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator(input => tenant.extend({ rows: z.array(b2bRow).min(1).max(100) }).parse(input)).handler(async ({ context, data }) => (await import('./b2b.server')).importB2B(context, data.tenantId, data.rows));
 export const getB2BMetrics = createServerFn({ method: 'POST' }).middleware([requireSupabaseAuth]).inputValidator(input => tenant.parse(input)).handler(async ({ context, data }) => (await import('./b2b.server')).metricB2B(context, data.tenantId));
+
+export const getCompanyDataFn = createServerFn({ method: 'POST' })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(input =>
+    z.object({
+      cnpj: z.string().optional(),
+      domain: z.string().optional(),
+      name: z.string().optional(),
+      city: z.string().optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data }) => {
+    const { getCompanyData } = await import('./b2b.server');
+    return getCompanyData(data.cnpj, data.domain, data.name, data.city);
+  });

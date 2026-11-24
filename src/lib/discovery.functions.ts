@@ -4,9 +4,10 @@ import { z } from "zod";
 import {
   bboxFromCircle, bboxFromPolygon, expandNiches, mergeRecords, lookupCnpj,
   parseBulkList, pointInPolygon, isSafePublicUrl, type MasterLead, type RawRecord, type BBox, type LatLng, type Cell,
-  type PhoneInfo, type SourceName, type FiscalProfile,
+  type PhoneInfo, type SourceName, type FiscalProfile, type UpdateReport, type LeadUpdateStatus,
   searchGooglePlacesMultiQuadrant, discoverWebPresence, calculateLeadScores,
   enrichSingleLead, enrichLeadsBatch, calculateCompleteness, buildContactChannels, buildFieldProvenance,
+  smartMergeLeads, refreshSingleLeadData, mergeSingleLeadUpdate,
 } from "./discovery";
 import { lookupCnpjBatch } from "./discovery/receita";
 import { searchAllOSM, searchNominatim, getAdministrativeBoundary, type AdminBoundary } from "./discovery/osm";
@@ -635,6 +636,168 @@ export const enrichDiscoveredLeadsBatch = createServerFn({ method: "POST" })
     };
   });
 
+/** Atualização inteligente da pesquisa: modo dados rápidos ou redescoberta completa */
+const updateSearchInput = z.object({
+  mode: z.enum(["data_only", "full_discovery"]),
+  existingLeads: z.array(z.any()).min(1).max(500),
+  searchParams: areaInput.optional(),
+});
+
+export const updateDiscoveredSearch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => updateSearchInput.parse(input))
+  .handler(async ({ context, data }): Promise<{ leads: MasterLead[]; report: UpdateReport; error: string | null }> => {
+    const existing = data.existingLeads as MasterLead[];
+    const now = new Date().toISOString();
+
+    if (data.mode === "data_only") {
+      let complementedFieldsCount = 0;
+      let newContactsCount = 0;
+      let updatedLeadsCount = 0;
+      let unchangedLeadsCount = 0;
+      let conflictsCount = 0;
+      const updatedNames: string[] = [];
+      const conflictNames: string[] = [];
+
+      // Reenriquece as empresas existentes em lote controlado
+      const freshlyEnriched = await enrichLeadsBatch(existing, {
+        concurrency: 3,
+        delayMs: 200,
+        forceRefresh: true,
+      });
+
+      const mergedLeads = existing.map((ex, idx) => {
+        const fresh = freshlyEnriched[idx] || freshlyEnriched.find((f) => f.key === ex.key);
+        if (!fresh) {
+          unchangedLeadsCount++;
+          return ex;
+        }
+
+        const { updatedLead, fieldsComplemented, newContactsCount: newContacts, hasConflict } = mergeSingleLeadUpdate(
+          ex,
+          fresh,
+          { now }
+        );
+
+        complementedFieldsCount += fieldsComplemented;
+        newContactsCount += newContacts;
+
+        if (hasConflict) {
+          conflictsCount++;
+          conflictNames.push(updatedLead.name);
+        }
+
+        if (fieldsComplemented > 0 || newContacts > 0) {
+          updatedLeadsCount++;
+          updatedNames.push(updatedLead.name);
+        } else {
+          unchangedLeadsCount++;
+        }
+
+        return updatedLead;
+      });
+
+      const report: UpdateReport = {
+        totalSearched: existing.length,
+        newLeadsCount: 0,
+        updatedLeadsCount,
+        unchangedLeadsCount,
+        newBranchesCount: 0,
+        newContactsCount,
+        complementedFieldsCount,
+        duplicatesAvoided: existing.length,
+        conflictsCount,
+        failedQueriesCount: 0,
+        mode: "data_only",
+        timestamp: now,
+        details: {
+          newLeadNames: [],
+          updatedLeadNames: updatedNames.slice(0, 10),
+          conflictLeadNames: conflictNames.slice(0, 10),
+        },
+      };
+
+      return { leads: mergedLeads, report, error: null };
+    }
+
+    // Modo full_discovery: Reexecuta a varredura geográfica e mescla com idempotência
+    if (!data.searchParams) {
+      return {
+        leads: existing,
+        report: {
+          totalSearched: 0,
+          newLeadsCount: 0,
+          updatedLeadsCount: 0,
+          unchangedLeadsCount: existing.length,
+          newBranchesCount: 0,
+          newContactsCount: 0,
+          complementedFieldsCount: 0,
+          duplicatesAvoided: 0,
+          conflictsCount: 0,
+          failedQueriesCount: 1,
+          mode: "full_discovery",
+          timestamp: now,
+        },
+        error: "Parâmetros de busca são obrigatórios para atualização completa.",
+      };
+    }
+
+    try {
+      const r = await discoverArea({
+        data: data.searchParams,
+      });
+
+      const incoming = r.leads || [];
+      const { mergedLeads, report } = smartMergeLeads(existing, incoming, {
+        preserveManual: true,
+        now,
+      });
+
+      return { leads: mergedLeads, report, error: null };
+    } catch (err) {
+      console.error("[updateDiscoveredSearch] Erro ao reexecutar busca:", err);
+      return {
+        leads: existing,
+        report: {
+          totalSearched: 0,
+          newLeadsCount: 0,
+          updatedLeadsCount: 0,
+          unchangedLeadsCount: existing.length,
+          newBranchesCount: 0,
+          newContactsCount: 0,
+          complementedFieldsCount: 0,
+          duplicatesAvoided: 0,
+          conflictsCount: 0,
+          failedQueriesCount: 1,
+          mode: "full_discovery",
+          timestamp: now,
+        },
+        error: "Falha ao executar nova varredura das fontes.",
+      };
+    }
+  });
+
+/** Atualização sob demanda de uma única empresa */
+const refreshSingleInput = z.object({
+  lead: z.any(),
+  forceRefresh: z.boolean().default(true),
+});
+
+export const refreshSingleBusiness = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => refreshSingleInput.parse(input))
+  .handler(async ({ data }): Promise<{ lead: MasterLead; updated: boolean; report: Partial<UpdateReport>; error: string | null }> => {
+    try {
+      const res = await refreshSingleLeadData(data.lead as MasterLead, {
+        forceRefresh: data.forceRefresh,
+      });
+      return { lead: res.lead, updated: res.updated, report: res.report, error: null };
+    } catch (err) {
+      console.error("[refreshSingleBusiness] Erro:", err);
+      return { lead: data.lead, updated: false, report: {}, error: "Falha ao atualizar dados desta empresa." };
+    }
+  });
+
 /** Recupera os detalhes completos e persistidos de uma empresa no Supabase */
 const getSavedBusinessInput = z.object({
   tenantId: z.string().uuid(),
@@ -799,6 +962,12 @@ export const getSavedBusinessDetails = createServerFn({ method: "POST" })
         cnpj: prof?.cnpj,
         fiscal,
       }),
+      updateStatus: b.field_sources?.updateStatus || "inalterada",
+      lastDiscoveredAt: b.field_sources?.lastDiscoveredAt || b.created_at,
+      lastEnrichedAt: b.field_sources?.lastEnrichedAt,
+      lastVerifiedAt: b.field_sources?.lastVerifiedAt || b.updated_at,
+      manualOverrides: b.field_sources?.manualOverrides || {},
+      conflicts: b.field_sources?.conflicts || {},
     };
 
     return { lead, error: null };
@@ -821,6 +990,12 @@ export const saveDiscoveredLeads = createServerFn({ method: "POST" })
       const fieldSourcesPayload = {
         ...(raw.fieldSources ?? {}),
         qualityStatus: raw.qualityStatus ?? null,
+        updateStatus: raw.updateStatus ?? null,
+        lastDiscoveredAt: raw.lastDiscoveredAt ?? null,
+        lastEnrichedAt: raw.lastEnrichedAt ?? null,
+        lastVerifiedAt: raw.lastVerifiedAt ?? null,
+        manualOverrides: raw.manualOverrides ?? null,
+        conflicts: raw.conflicts ?? null,
       };
 
       const row = {

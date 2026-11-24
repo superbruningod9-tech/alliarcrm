@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { processMetaAdsWebhook, loadIntegrationSettings } from "@/lib/integrations";
+import { jsonSuccess, validateWebhook, getTenantId } from "@/middleware/webhookSecurity";
+import { z } from "zod";
 
 export const Route = createFileRoute("/api/public/webhooks/meta-ads")({
   server: {
@@ -22,48 +24,33 @@ export const Route = createFileRoute("/api/public/webhooks/meta-ads")({
 
       // Recepção de leads gerados em anúncios
       POST: async ({ request }) => {
-        try {
-          const url = new URL(request.url);
-          const tenantId = url.searchParams.get("t") || "default";
+        const schema = z.object({ entry: z.any() }).passthrough();
+        const { valid, error, data } = await validateWebhook(request, schema);
+        if (!valid) return error;
 
-          let body: any = {};
-          try {
-            body = await request.json();
-          } catch {
-            return new Response("Invalid JSON", { status: 400 });
-          }
+        const tenantId = getTenantId(request);
+        const body = data as any;
+        const entry = body.entry?.[0];
+        const change = entry?.changes?.[0]?.value;
 
-          // Meta envia estrutura com 'entry'
-          const entry = body.entry?.[0];
-          const change = entry?.changes?.[0]?.value;
+        const leadName = change?.lead_name || body.lead_name || "Lead Anúncio Instagram";
+        const leadPhone = change?.phone_number || body.phone_number || body.lead_phone || "";
+        const leadEmail = change?.email || body.email || body.lead_email || "";
+        const campaignName = change?.campaign_name || body.campaign_name || "Campanha Instagram Ads";
+        const adName = change?.ad_name || body.ad_name || "Feed / Stories";
+        const formId = change?.form_id || body.form_id || "";
 
-          const leadName = change?.lead_name || body.lead_name || "Lead Anúncio Instagram";
-          const leadPhone = change?.phone_number || body.phone_number || body.lead_phone || "";
-          const leadEmail = change?.email || body.email || body.lead_email || "";
-          const campaignName = change?.campaign_name || body.campaign_name || "Campanha Instagram Ads";
-          const adName = change?.ad_name || body.ad_name || "Feed / Stories";
-          const formId = change?.form_id || body.form_id || "";
+        const result = await processMetaAdsWebhook({
+          tenantId,
+          leadName,
+          leadPhone,
+          leadEmail,
+          campaignName,
+          adName,
+          formId,
+        });
 
-          const result = await processMetaAdsWebhook({
-            tenantId,
-            leadName,
-            leadPhone,
-            leadEmail,
-            campaignName,
-            adName,
-            formId,
-          });
-
-          return new Response(JSON.stringify({ status: "success", result }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        } catch (err) {
-          return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Internal error" }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
+        return jsonSuccess({ status: "success", result });
       },
     },
   },

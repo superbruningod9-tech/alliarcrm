@@ -10,5 +10,6 @@ export * from "./receita";
 export * from "./lookup";
 export * from "./cnpj-discovery";
 export * from "./enrichment";
+export * from "./smart-update";
 export { extractFromHtml, isSafePublicUrl, KEY_PATHS, crawlSite } from "./crawler";
 

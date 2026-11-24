@@ -4,6 +4,23 @@ export type CompanyType = "matriz" | "filial" | "independente" | "desconhecido";
 export type RelationType = "matriz" | "filial" | "franquia" | "independente" | "desconhecido";
 export type SizeCategory = "grande" | "pme";
 
+export type QualityStatus =
+  | "confirmado"          // Visto e confirmado em 2+ fontes
+  | "encontrado"          // Encontrado em 1 fonte confiável
+  | "nao_verificado"      // Valor bruto ainda não checado
+  | "nao_encontrado"      // Pesquisado em registros públicos e ausente
+  | "pendente"            // Aguardando na fila de enriquecimento
+  | "erro";               // Falha/indisponibilidade na consulta à fonte
+
+export interface FieldMeta<T = any> {
+  value: T;
+  source: SourceName;
+  sources: SourceName[];
+  status: QualityStatus;
+  enrichedAt?: string;
+  note?: string;
+}
+
 export interface BBox { latMin: number; lngMin: number; latMax: number; lngMax: number }
 export interface LatLng { lat: number; lng: number }
 
@@ -41,14 +58,27 @@ export interface FiscalProfile {
   razaoSocial?: string;
   nomeFantasia?: string;
   situacao?: string;
+  situacaoData?: string;
   abertura?: string;          // ISO yyyy-mm-dd
+  idadeAnos?: number;
   porte?: string;             // MEI | ME | EPP | DEMAIS
   capitalSocial?: number;
   cnaePrincipal?: { code: string; description: string };
   cnaesSecundarios?: { code: string; description: string }[];
-  socios?: { nome: string; qualificacao: string }[];
+  socios?: { nome: string; qualificacao: string; faixaEtaria?: string }[];
   email?: string;
   telefones?: string[];
+  enderecoCadastral?: {
+    logradouro?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    municipio?: string;
+    uf?: string;
+    cep?: string;
+  };
+  isMatriz?: boolean;
+  tipoUnidade?: "matriz" | "filial";
 }
 
 export interface SiteDiagnosis {
@@ -58,8 +88,52 @@ export interface SiteDiagnosis {
   redirectedTo?: string;
   hasAnalytics?: boolean;
   hasWhatsappLink?: boolean;
+  hasContactForm?: boolean;
+  technologies?: string[];
+  servicesAndSpecialties?: string[];
+  metaDescription?: string;
+  pageTitle?: string;
+  responseTimeMs?: number;
   status?: number;
   error?: string;
+}
+
+export interface ContactChannels {
+  landlinePhones: PhoneInfo[];
+  mobilePhones: PhoneInfo[];
+  whatsappPhones: PhoneInfo[];
+  landline?: string;
+  mobilePhone?: string;
+  whatsapp?: string;
+  commercialEmail?: string;
+  supportEmail?: string;
+  commercialEmails: { value: string; sources: SourceName[]; label: "comercial" | "atendimento" | "geral" }[];
+  supportEmails: { value: string; sources: SourceName[]; label: "comercial" | "atendimento" | "geral" }[];
+  personalContacts: { name: string; role?: string; phone?: string; email?: string }[];
+  officialWebsite?: string;
+  socials: Partial<Record<"instagram" | "facebook" | "linkedin" | "youtube" | "tiktok", string>>;
+}
+
+export interface CompletenessSection {
+  score: number; // 0-100
+  status: "completa" | "parcial" | "incompleta";
+  missing: string[];
+}
+
+export interface CompletenessReport {
+  overallScore: number; // 0-100%
+  status?: "completa" | "parcial" | "incompleta";
+  identification: CompletenessSection;
+  fiscal: CompletenessSection;
+  contact: CompletenessSection;
+  digital: CompletenessSection;
+  sections?: {
+    identification: CompletenessSection;
+    fiscal: CompletenessSection;
+    contact: CompletenessSection;
+    digital: CompletenessSection;
+  };
+  missingFields: string[];
 }
 
 export interface PhoneInfo {
@@ -114,4 +188,10 @@ export interface MasterLead {
   commercialScore?: number;
   commercialReasons?: string[];
   serviceOpportunities?: string[];
+  // Enriquecimento estruturado, procedência e completude
+  enrichmentStatus?: "pendente" | "processando" | "completo" | "parcial" | "erro";
+  enrichedAt?: string;
+  completeness?: CompletenessReport;
+  contactsDetailed?: ContactChannels;
+  provenance?: Record<string, FieldMeta>;
 }

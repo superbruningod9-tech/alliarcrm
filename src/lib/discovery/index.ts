@@ -8,4 +8,7 @@ export * from "./scoring";
 export * from "./osm";
 export * from "./receita";
 export * from "./lookup";
-export { extractFromHtml, isSafePublicUrl, KEY_PATHS } from "./crawler";
+export * from "./cnpj-discovery";
+export * from "./enrichment";
+export { extractFromHtml, isSafePublicUrl, KEY_PATHS, crawlSite } from "./crawler";
+

@@ -4,7 +4,9 @@ import { z } from "zod";
 import {
   bboxFromCircle, bboxFromPolygon, expandNiches, mergeRecords, lookupCnpj,
   parseBulkList, pointInPolygon, isSafePublicUrl, type MasterLead, type RawRecord, type BBox, type LatLng, type Cell,
+  type PhoneInfo, type SourceName, type FiscalProfile,
   searchGooglePlacesMultiQuadrant, discoverWebPresence, calculateLeadScores,
+  enrichSingleLead, enrichLeadsBatch, calculateCompleteness, buildContactChannels, buildFieldProvenance,
 } from "./discovery";
 import { lookupCnpjBatch } from "./discovery/receita";
 import { searchAllOSM, searchNominatim, getAdministrativeBoundary, type AdminBoundary } from "./discovery/osm";
@@ -338,12 +340,12 @@ export const discoverArea = createServerFn({ method: "POST" })
       );
     }
 
-    // 8. Consulta BrasilAPI / Receita Federal em lote paralelo controlado
+    // 8. Consulta BrasilAPI / Receita Federal em lote paralelo controlado para todos os CNPJs descobertos
     const fiscalRecords: RawRecord[] = [];
     const cnpjs = Array.from(new Set([...osmRecords, ...placesRecords].map((r) => r.cnpj).filter(Boolean)));
     if (cnpjs.length > 0) {
       try {
-        const batchFiscal = await lookupCnpjBatch(cnpjs as string[], 8, 3);
+        const batchFiscal = await lookupCnpjBatch(cnpjs as string[], 100, 3);
         for (const f of batchFiscal) {
           fiscalRecords.push({
             source: "receita",
@@ -368,10 +370,36 @@ export const discoverArea = createServerFn({ method: "POST" })
     );
 
     const merged = mergeRecords(allRaw);
-    const scoredLeads = merged.map((l) =>
+    let leads = merged.map((l) =>
       calculateLeadScores(l, keywords, niche.relatedCategories || [], niche.cnaes || [])
     );
-    const leads = scoredLeads.slice(0, 300);
+
+    // Enriquecimento estruturado inicial ou cálculo de completude para todos os leads encontrados
+    if (data.enrich && leads.length > 0) {
+      try {
+        leads = await enrichLeadsBatch(leads, {
+          concurrency: 3,
+          delayMs: 200,
+          googleKey: resolvedGoogleKey,
+        });
+      } catch (err) {
+        console.warn("[Discovery] Erro no enriquecimento em lote durante busca:", err);
+      }
+    } else {
+      leads = leads.map((l) => {
+        const completeness = calculateCompleteness(l);
+        const contactChannels = buildContactChannels(l);
+        const qualityStatus = buildFieldProvenance(l);
+        return {
+          ...l,
+          completeness,
+          contactChannels,
+          qualityStatus,
+        };
+      });
+    }
+
+    leads = leads.slice(0, 300);
 
     // 11. Agregação do cursor para continuidade da varredura
     const nextPending = [
@@ -471,21 +499,309 @@ export const discoverBulk = createServerFn({ method: "POST" })
     return { leads: mergeRecords(recs).sort((a, b) => b.score - a.score), pendingNames, error: null };
   });
 
-/** Enriquecimento sob demanda para um único lead (sem bloquear a listagem inicial) */
+/** Enriquecimento estruturado para um único lead (com crawler multi-rotas, CNPJ independente, proveniência e completude) */
 const enrichSingleInput = z.object({
   key: z.string(),
   name: z.string(),
   website: z.string().optional(),
   cnpj: z.string().optional(),
   city: z.string().optional(),
+  state: z.string().optional(),
+  address: z.string().optional(),
+  cep: z.string().optional(),
+  forceRefresh: z.boolean().optional(),
 });
 
 export const enrichLeadSingle = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => enrichSingleInput.parse(input))
-  .handler(async ({ data }) => {
-    const { getCompanyData } = await import("./b2b.server");
-    return getCompanyData(data.cnpj, data.website, data.name, data.city);
+  .handler(async ({ context, data }) => {
+    let resolvedGoogleKey =
+      process.env.GOOGLE_PLACES_API_KEY ||
+      process.env.VITE_GOOGLE_PLACES_API_KEY ||
+      process.env.GOOGLE_MAPS_API_KEY ||
+      "";
+
+    if (!resolvedGoogleKey && context?.supabase && context?.userId) {
+      try {
+        const { data: conn } = await (context.supabase as any)
+          .from("b2b_connections")
+          .select("key_ciphertext")
+          .eq("user_id", context.userId)
+          .eq("provider", "google_places")
+          .maybeSingle();
+        if (conn?.key_ciphertext) {
+          resolvedGoogleKey = safeDecryptKey(conn.key_ciphertext);
+        }
+      } catch {}
+    }
+
+    const leadMock: MasterLead = {
+      key: data.key,
+      name: data.name,
+      website: data.website,
+      cnpj: data.cnpj,
+      city: data.city,
+      state: data.state,
+      address: data.address,
+      cep: data.cep,
+      sources: ["site"],
+      fieldSources: {},
+      phones: [],
+      emails: [],
+      score: 50,
+      triggers: [],
+    };
+
+    const enriched = await enrichSingleLead(leadMock, {
+      forceRefresh: data.forceRefresh,
+      googleKey: resolvedGoogleKey,
+    });
+
+    return {
+      lead: enriched,
+      fiscal: enriched.fiscal,
+      siteDiagnosis: enriched.siteDiagnosis,
+      phones: enriched.phones.map((p) => p.e164 || p.raw),
+      whatsapp: enriched.phones.find((p) => p.whatsappLikely)?.e164 || enriched.contactChannels?.whatsapp || null,
+      email: enriched.emails[0]?.value || enriched.contactChannels?.commercialEmail || null,
+      socials: enriched.socials || {},
+      qsa: enriched.fiscal?.socios?.[0]
+        ? `${enriched.fiscal.socios[0].nome} (${enriched.fiscal.socios[0].qualificacao || "Sócio"})`
+        : null,
+      completeness: enriched.completeness,
+      contactChannels: enriched.contactChannels,
+      qualityStatus: enriched.qualityStatus,
+    };
+  });
+
+/** Enriquecimento em lote estruturado para todas as empresas encontradas */
+const enrichBatchInput = z.object({
+  leads: z.array(z.any()).min(1).max(300),
+  forceRefresh: z.boolean().default(false),
+  googlePlacesKey: z.string().optional(),
+});
+
+export const enrichDiscoveredLeadsBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => enrichBatchInput.parse(input))
+  .handler(async ({ context, data }) => {
+    let resolvedGoogleKey =
+      data.googlePlacesKey?.trim() ||
+      process.env.GOOGLE_PLACES_API_KEY ||
+      process.env.VITE_GOOGLE_PLACES_API_KEY ||
+      process.env.GOOGLE_MAPS_API_KEY ||
+      "";
+
+    if (!resolvedGoogleKey && context?.supabase && context?.userId) {
+      try {
+        const { data: conn } = await (context.supabase as any)
+          .from("b2b_connections")
+          .select("key_ciphertext")
+          .eq("user_id", context.userId)
+          .eq("provider", "google_places")
+          .maybeSingle();
+        if (conn?.key_ciphertext) {
+          resolvedGoogleKey = safeDecryptKey(conn.key_ciphertext);
+        }
+      } catch (err) {
+        console.warn("[Discovery] Erro ao buscar chave Google no banco:", err);
+      }
+    }
+
+    let cnpjsDiscovered = 0;
+    let whatsappsDiscovered = 0;
+    let sitesCrawled = 0;
+
+    const enrichedLeads = await enrichLeadsBatch(data.leads as MasterLead[], {
+      concurrency: 3,
+      delayMs: 200,
+      forceRefresh: data.forceRefresh,
+      googleKey: resolvedGoogleKey,
+      onProgress: (p) => {
+        cnpjsDiscovered = p.cnpjsDiscovered;
+        whatsappsDiscovered = p.whatsappsDiscovered;
+        sitesCrawled = p.sitesCrawled;
+      },
+    });
+
+    return {
+      leads: enrichedLeads,
+      total: enrichedLeads.length,
+      cnpjsDiscovered,
+      whatsappsDiscovered,
+      sitesCrawled,
+      error: null,
+    };
+  });
+
+/** Recupera os detalhes completos e persistidos de uma empresa no Supabase */
+const getSavedBusinessInput = z.object({
+  tenantId: z.string().uuid(),
+  businessId: z.string().uuid().optional(),
+  mergeKey: z.string().optional(),
+});
+
+export const getSavedBusinessDetails = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => getSavedBusinessInput.parse(input))
+  .handler(async ({ context, data }): Promise<{ lead: MasterLead | null; error: string | null }> => {
+    const sb = context.supabase as any;
+    const { data: ok } = await sb.rpc("is_member", { t: data.tenantId });
+    if (!ok) return { lead: null, error: "Sem acesso a este tenant." };
+
+    let query = sb.from("crm_businesses").select("*").eq("tenant_id", data.tenantId);
+    if (data.businessId) {
+      query = query.eq("id", data.businessId);
+    } else if (data.mergeKey) {
+      query = query.eq("merge_key", data.mergeKey);
+    } else {
+      return { lead: null, error: "businessId ou mergeKey deve ser fornecido." };
+    }
+
+    const { data: b, error: bErr } = await query.maybeSingle();
+    if (bErr || !b) return { lead: null, error: bErr?.message || "Empresa não encontrada no banco." };
+
+    const [contactsRes, profileRes, reviewsRes] = await Promise.all([
+      sb.from("lead_contacts").select("*").eq("business_id", b.id),
+      sb.from("lead_company_profiles").select("*").eq("business_id", b.id).maybeSingle(),
+      sb.from("lead_reviews").select("*").eq("business_id", b.id).order("reviewed_at", { ascending: false }).limit(20),
+    ]);
+
+    const contacts = contactsRes.data || [];
+    const prof = profileRes.data || null;
+    const reviews = reviewsRes.data || [];
+
+    const phones: PhoneInfo[] = contacts
+      .filter((c: any) => c.kind === "phone")
+      .map((c: any) => ({
+        raw: c.value,
+        e164: c.value,
+        type: (c.label as any) || (c.whatsapp ? "mobile" : "landline"),
+        sources: (c.sources as SourceName[]) || ["crm"],
+        confirmed: Boolean(c.confirmed),
+        whatsappLikely: Boolean(c.whatsapp),
+      }));
+
+    const emails = contacts
+      .filter((c: any) => c.kind === "email")
+      .map((c: any) => ({
+        value: c.value,
+        sources: (c.sources as SourceName[]) || ["crm"],
+      }));
+
+    const socials: Record<string, string> = {};
+    for (const c of contacts.filter((item: any) => item.kind === "social")) {
+      if (c.label && c.value) socials[c.label] = c.value;
+    }
+
+    const siteDiag = prof?.site_diagnosis || {};
+
+    const fiscal: FiscalProfile | undefined = prof
+      ? {
+          cnpj: prof.cnpj,
+          razaoSocial: prof.razao_social,
+          nomeFantasia: prof.nome_fantasia,
+          situacao: prof.situacao,
+          situacaoData: siteDiag.situacaoData,
+          abertura: prof.abertura,
+          idadeAnos: siteDiag.idadeAnos,
+          porte: prof.porte,
+          capitalSocial: prof.capital_social ? Number(prof.capital_social) : undefined,
+          cnaePrincipal: prof.cnae_principal,
+          cnaesSecundarios: prof.cnaes_secundarios || [],
+          socios: prof.socios || [],
+          enderecoCadastral: siteDiag.enderecoCadastral,
+          isMatriz: siteDiag.isMatriz,
+          tipoUnidade: siteDiag.tipoUnidade,
+        }
+      : undefined;
+
+    const lead: MasterLead = {
+      key: b.merge_key,
+      name: b.name,
+      category: b.category,
+      categories: b.categories || [],
+      address: b.address,
+      neighborhood: b.neighborhood,
+      city: b.city,
+      state: b.state,
+      cep: b.cep,
+      lat: b.lat,
+      lng: b.lng,
+      website: b.website,
+      rating: b.rating ? Number(b.rating) : undefined,
+      reviewsCount: b.reviews_count,
+      claimed: b.claimed,
+      photosCount: b.photos_count,
+      openingHours: b.opening_hours,
+      sources: b.sources || [],
+      fieldSources: b.field_sources || {},
+      triggers: b.triggers || [],
+      score: b.score || 0,
+      phones,
+      emails,
+      socials,
+      cnpj: prof?.cnpj || (b.merge_key.replace(/\D/g, "").length === 14 ? b.merge_key : undefined),
+      fiscal,
+      siteDiagnosis: siteDiag,
+      reviews: reviews.map((r: any) => ({
+        rating: r.rating,
+        text: r.text,
+        date: r.reviewed_at,
+      })),
+      completeness: siteDiag.completeness || calculateCompleteness({
+        key: b.merge_key,
+        name: b.name,
+        category: b.category,
+        categories: b.categories,
+        address: b.address,
+        city: b.city,
+        state: b.state,
+        cep: b.cep,
+        website: b.website,
+        sources: b.sources,
+        fieldSources: b.field_sources,
+        triggers: b.triggers,
+        score: b.score,
+        phones,
+        emails,
+        socials,
+        cnpj: prof?.cnpj,
+        fiscal,
+        siteDiagnosis: siteDiag,
+      }),
+      contactChannels: siteDiag.contactChannels || buildContactChannels({
+        key: b.merge_key,
+        name: b.name,
+        website: b.website,
+        sources: b.sources,
+        fieldSources: b.field_sources,
+        triggers: b.triggers,
+        score: b.score,
+        phones,
+        emails,
+        socials,
+        cnpj: prof?.cnpj,
+        fiscal,
+      }),
+      qualityStatus: b.field_sources?.qualityStatus || buildFieldProvenance({
+        key: b.merge_key,
+        name: b.name,
+        website: b.website,
+        sources: b.sources,
+        fieldSources: b.field_sources,
+        triggers: b.triggers,
+        score: b.score,
+        phones,
+        emails,
+        socials,
+        cnpj: prof?.cnpj,
+        fiscal,
+      }),
+    };
+
+    return { lead, error: null };
   });
 
 /** Salva leads descobertos no tenant (tabelas criadas por docs/sql/2026-motor-descoberta.sql). */
@@ -502,6 +818,11 @@ export const saveDiscoveredLeads = createServerFn({ method: "POST" })
     if (!ok) return { saved: 0, error: "Sem acesso a esta empresa." };
     let saved = 0;
     for (const raw of data.leads as unknown as MasterLead[]) {
+      const fieldSourcesPayload = {
+        ...(raw.fieldSources ?? {}),
+        qualityStatus: raw.qualityStatus ?? null,
+      };
+
       const row = {
         tenant_id: data.tenantId,
         user_id: context.userId,
@@ -523,36 +844,87 @@ export const saveDiscoveredLeads = createServerFn({ method: "POST" })
         photos_count: raw.photosCount ?? null,
         opening_hours: raw.openingHours ?? null,
         sources: raw.sources ?? [],
-        field_sources: raw.fieldSources ?? {},
+        field_sources: fieldSourcesPayload,
         triggers: raw.triggers ?? [],
         score: Math.round(raw.score ?? 0),
         updated_at: new Date().toISOString(),
       };
       const { data: b, error } = await sb.from("crm_businesses").upsert(row, { onConflict: "tenant_id,merge_key" }).select("id").single();
       if (error || !b) return { saved, error: error?.message?.includes("does not exist") ? "Tabelas do motor ainda não existem. Aplique docs/sql/2026-motor-descoberta.sql no Supabase." : "Não foi possível salvar." };
-      const contacts = [
-        ...(raw.phones ?? []).map((p) => ({ kind: "phone", value: p.e164, label: p.type, whatsapp: p.whatsappLikely, sources: p.sources, confirmed: p.confirmed })),
-        ...(raw.emails ?? []).map((e) => ({ kind: "email", value: e.value, label: null, whatsapp: false, sources: e.sources, confirmed: e.sources.length > 1 })),
-        ...Object.entries(raw.socials ?? {}).map(([k, v]) => ({ kind: "social", value: String(v).slice(0, 500), label: k, whatsapp: false, sources: ["site"], confirmed: false })),
+
+      const rawContacts = [
+        ...(raw.phones ?? []).map((p) => ({
+          kind: "phone",
+          value: p.e164 || p.raw,
+          label: p.type || (p.whatsappLikely ? "mobile" : "landline"),
+          whatsapp: Boolean(p.whatsappLikely),
+          sources: p.sources || ["manual"],
+          confirmed: Boolean(p.confirmed),
+        })),
+        ...(raw.contactChannels?.whatsapp ? [{
+          kind: "phone",
+          value: raw.contactChannels.whatsapp,
+          label: "whatsapp",
+          whatsapp: true,
+          sources: ["whatsapp_link"],
+          confirmed: true,
+        }] : []),
+        ...(raw.emails ?? []).map((e) => ({
+          kind: "email",
+          value: e.value,
+          label: raw.contactChannels?.supportEmail === e.value ? "atendimento" : "comercial",
+          whatsapp: false,
+          sources: e.sources || ["crawler"],
+          confirmed: (e.sources?.length ?? 0) > 1,
+        })),
+        ...Object.entries(raw.socials ?? {}).map(([k, v]) => ({
+          kind: "social",
+          value: String(v).slice(0, 500),
+          label: k,
+          whatsapp: false,
+          sources: ["site"],
+          confirmed: false,
+        })),
       ].map((c) => ({ ...c, tenant_id: data.tenantId, business_id: b.id }));
-      if (contacts.length) await sb.from("lead_contacts").upsert(contacts, { onConflict: "business_id,kind,value" });
-      if (raw.fiscal || raw.siteDiagnosis) {
+
+      if (rawContacts.length) {
+        const contactMap = new Map<string, typeof rawContacts[0]>();
+        for (const c of rawContacts) {
+          const cKey = `${c.kind}:${c.value}`;
+          if (!contactMap.has(cKey)) contactMap.set(cKey, c);
+        }
+        await sb.from("lead_contacts").upsert(Array.from(contactMap.values()), { onConflict: "business_id,kind,value" });
+      }
+
+      if (raw.fiscal || raw.siteDiagnosis || raw.completeness || raw.contactChannels) {
         const f = raw.fiscal;
+        const siteDiagnosisPayload = {
+          ...(raw.siteDiagnosis ?? {}),
+          completeness: raw.completeness ?? null,
+          contactChannels: raw.contactChannels ?? null,
+          qualityStatus: raw.qualityStatus ?? null,
+          enderecoCadastral: f?.enderecoCadastral ?? null,
+          idadeAnos: f?.idadeAnos ?? null,
+          isMatriz: f?.isMatriz ?? null,
+          tipoUnidade: f?.tipoUnidade ?? null,
+          situacaoData: f?.situacaoData ?? null,
+        };
+
         await sb.from("lead_company_profiles").upsert(
           {
             business_id: b.id,
             tenant_id: data.tenantId,
-            cnpj: raw.cnpj ?? null,
+            cnpj: raw.cnpj ?? f?.cnpj ?? null,
             razao_social: f?.razaoSocial ?? null,
             nome_fantasia: f?.nomeFantasia ?? null,
             situacao: f?.situacao ?? null,
-            abertura: f?.abertura ?? null,
+            abertura: f?.abertura ? f.abertura.split("T")[0] : null,
             porte: f?.porte ?? null,
             capital_social: f?.capitalSocial ?? null,
             cnae_principal: f?.cnaePrincipal ?? null,
             cnaes_secundarios: f?.cnaesSecundarios ?? [],
             socios: f?.socios ?? [],
-            site_diagnosis: raw.siteDiagnosis ?? {},
+            site_diagnosis: siteDiagnosisPayload,
           },
           { onConflict: "business_id" }
         );

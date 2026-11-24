@@ -8,6 +8,15 @@ import { parseBulkList } from "@/lib/discovery/receita";
 import { parseOverpass, buildOverpassQuery, getAdministrativeBoundary } from "@/lib/discovery/osm";
 import { searchGooglePlacesNew, searchGooglePlacesMultiQuadrant, discoverWebPresence } from "@/lib/discovery/lookup";
 import { calculateRelevanceScore, calculateCommercialScore, calculateLeadScores, sortLeads } from "@/lib/discovery/scoring";
+import { discoverAndVerifyCnpj, lookupRegistroBrCnpj } from "@/lib/discovery/cnpj-discovery";
+import {
+  calculateCompleteness,
+  buildContactChannels,
+  buildFieldProvenance,
+  enrichSingleLead,
+  enrichLeadsBatch,
+} from "@/lib/discovery/enrichment";
+import type { MasterLead } from "@/lib/discovery/types";
 
 describe("telefone", () => {
   it("normaliza formatos diferentes para o mesmo E.164", () => {
@@ -434,5 +443,256 @@ describe("google places & web presence", () => {
     expect(stats.cellsSearched).toBe(1);
     expect(items).toEqual(["c1"]);
     expect(pendingCells).toEqual([cellB]); // c2 segue na fila para a próxima requisição
+  });
+});
+
+describe("enriquecimento robusto em lote e descoberta de CNPJ", () => {
+  it("lookupRegistroBrCnpj extrai CNPJ do RDAP de domínio .br", async () => {
+    const fakeFetch = vi.fn(async (url: any) => {
+      expect(String(url)).toContain("rdap.registro.br/domain/hospitalpet.com.br");
+      return {
+        ok: true,
+        json: async () => ({
+          entities: [
+            {
+              handle: "00000000000191",
+            },
+          ],
+        }),
+      } as any;
+    });
+
+    const cnpj = await lookupRegistroBrCnpj("https://hospitalpet.com.br/contato", fakeFetch as any);
+    expect(cnpj).toBe("00000000000191");
+  });
+
+  it("discoverAndVerifyCnpj valida coerência de cidade/estado e rejeita alucinação/falso-positivo", async () => {
+    // Cenário 1: Candidato com cidade compatível e nome semelhante
+    const fakeFetchMatch = vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("nominatim")) {
+        return {
+          ok: true,
+          json: async () => [
+            {
+              display_name: "Hospital Veterinário Pet Feliz, Porto Alegre",
+              extratags: {
+                cnpj: "00000000000191",
+              },
+            },
+          ],
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          cnpj: "00000000000191",
+          razao_social: "HOSPITAL VETERINARIO PET FELIZ LTDA",
+          nome_fantasia: "PET FELIZ",
+          municipio: "PORTO ALEGRE",
+          uf: "RS",
+          logradouro: "AV CRISTOVAO COLOMBO",
+          numero: "100",
+          cep: "90560000",
+          descricao_situacao_cadastral: "ATIVA",
+          porte: "ME",
+        }),
+      } as any;
+    });
+
+    const matchLead: MasterLead = {
+      key: "lead-poa",
+      name: "Hospital Veterinário Pet Feliz",
+      city: "Porto Alegre",
+      state: "RS",
+      address: "Av Cristóvão Colombo, 100",
+      sources: ["osm"],
+      fieldSources: {},
+      phones: [],
+      emails: [],
+      score: 80,
+      triggers: [],
+      categories: ["veterinaria"],
+    };
+
+    const verified = await discoverAndVerifyCnpj(matchLead, fakeFetchMatch as any);
+    expect(verified).not.toBeNull();
+    expect(verified?.cnpj).toBe("00000000000191");
+    expect(verified?.fiscal.razaoSocial).toBe("HOSPITAL VETERINARIO PET FELIZ LTDA");
+
+    // Cenário 2: Anti-alucinação - Candidato em outra cidade sem similaridade suficiente
+    const fakeFetchMismatch = vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("nominatim")) {
+        return {
+          ok: true,
+          json: async () => [
+            {
+              display_name: "Padaria do Bairro, Manaus",
+              extratags: {
+                cnpj: "11222333000181",
+              },
+            },
+          ],
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          cnpj: "11222333000181",
+          razao_social: "SUPERMERCADO OUTRO ESTADO S/A",
+          municipio: "MANAUS",
+          uf: "AM",
+          descricao_situacao_cadastral: "ATIVA",
+        }),
+      } as any;
+    });
+
+    const mismatchLead: MasterLead = {
+      key: "lead-sp",
+      name: "Padaria do Bairro",
+      city: "Porto Alegre",
+      state: "RS",
+      sources: ["osm"],
+      fieldSources: {},
+      phones: [],
+      emails: [],
+      score: 50,
+      triggers: [],
+      categories: ["padaria"],
+    };
+
+    const rejected = await discoverAndVerifyCnpj(mismatchLead, fakeFetchMismatch as any);
+    expect(rejected).toBeNull();
+  });
+
+  it("calculateCompleteness pontua 4 pilares e lista campos faltantes com transparência", () => {
+    const leadIncomplete: MasterLead = {
+      key: "lead-simple",
+      name: "Oficina Mecânica Express",
+      city: "Curitiba",
+      state: "PR",
+      sources: ["osm"],
+      fieldSources: {},
+      phones: [{ raw: "41999998888", e164: "+5541999998888", type: "mobile", sources: ["osm"], confirmed: false, whatsappLikely: true }],
+      emails: [],
+      score: 60,
+      triggers: [],
+      categories: ["oficina"],
+    };
+
+    const rep = calculateCompleteness(leadIncomplete);
+    expect(rep.overallScore).toBeLessThan(70);
+    expect(rep.identification.missing).toContain("Razão social");
+    expect(rep.identification.missing).toContain("CNPJ");
+    expect(rep.fiscal.missing).toContain("Situação cadastral");
+    expect(rep.missingFields.some((f) => /site|website/i.test(f))).toBe(true);
+    expect(rep.missingFields).toContain("CNPJ");
+  });
+
+  it("buildContactChannels segrega telefone fixo, celular, whatsapp, e-mail comercial e de atendimento", () => {
+    const lead: MasterLead = {
+      key: "lead-contatos",
+      name: "Clínica Saúde Total",
+      sources: ["site", "osm"],
+      fieldSources: {},
+      phones: [
+        { raw: "5133334444", e164: "+555133334444", type: "landline", sources: ["site"], confirmed: true, whatsappLikely: false },
+        { raw: "51988887777", e164: "+5551988887777", type: "mobile", sources: ["site"], confirmed: true, whatsappLikely: true },
+      ],
+      emails: [
+        { value: "vendas@saudetotal.com.br", sources: ["site"] },
+        { value: "sac@saudetotal.com.br", sources: ["site"] },
+      ],
+      siteDiagnosis: {
+        hasWhatsappLink: true,
+        whatsappNumber: "+5551988887777",
+      },
+      website: "https://saudetotal.com.br",
+      score: 85,
+      triggers: [],
+      categories: ["clinica"],
+    };
+
+    const channels = buildContactChannels(lead);
+    expect(channels.landline).toBe("+555133334444");
+    expect(channels.mobilePhone).toBe("+5551988887777");
+    expect(channels.whatsapp).toBe("+5551988887777");
+    expect(channels.commercialEmail).toBe("vendas@saudetotal.com.br");
+    expect(channels.supportEmail).toBe("sac@saudetotal.com.br");
+    expect(channels.officialWebsite).toBe("https://saudetotal.com.br");
+  });
+
+  it("enrichSingleLead enriquece empresa SEM site através de fontes públicas sem abandoná-la", async () => {
+    const leadSemSite: MasterLead = {
+      key: "sem-site-1",
+      name: "Bar e Restaurante Tradicional",
+      city: "Porto Alegre",
+      state: "RS",
+      address: "Rua dos Andradas, 500",
+      sources: ["osm"],
+      fieldSources: {},
+      phones: [{ raw: "5132221111", e164: "+555132221111", type: "landline", sources: ["osm"], confirmed: false, whatsappLikely: false }],
+      emails: [],
+      score: 65,
+      triggers: [],
+      categories: ["restaurante"],
+    };
+
+    const enriched = await enrichSingleLead(leadSemSite, {
+      forceRefresh: true,
+    });
+
+    // Não deve lançar erro nem abandonar a empresa
+    expect(enriched.key).toBe("sem-site-1");
+    expect(enriched.completeness).toBeDefined();
+    expect(enriched.contactChannels).toBeDefined();
+    expect(enriched.qualityStatus).toBeDefined();
+    // Confirma que a completude lista a ausência de site sem inventar
+    expect(enriched.completeness?.missingFields).toContain("Website institucional");
+  });
+
+  it("enrichLeadsBatch processa múltiplas empresas em lote controlado com callback de progresso", async () => {
+    const batchLeads: MasterLead[] = [
+      {
+        key: "batch-1",
+        name: "Farmácia Centro",
+        city: "Porto Alegre",
+        sources: ["osm"],
+        fieldSources: {},
+        phones: [],
+        emails: [],
+        score: 70,
+        triggers: [],
+        categories: ["farmacia"],
+      },
+      {
+        key: "batch-2",
+        name: "Padaria Modelo",
+        city: "Porto Alegre",
+        sources: ["osm"],
+        fieldSources: {},
+        phones: [],
+        emails: [],
+        score: 70,
+        triggers: [],
+        categories: ["padaria"],
+      },
+    ];
+
+    let progressCallCount = 0;
+    const enriched = await enrichLeadsBatch(batchLeads, {
+      concurrency: 2,
+      delayMs: 10,
+      onProgress: (p) => {
+        progressCallCount++;
+        expect(p.total).toBe(2);
+      },
+    });
+
+    expect(enriched).toHaveLength(2);
+    expect(progressCallCount).toBe(2);
+    expect(enriched[0]!.completeness).toBeDefined();
+    expect(enriched[1]!.completeness).toBeDefined();
   });
 });

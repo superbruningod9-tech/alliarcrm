@@ -62,56 +62,101 @@ export interface QuadtreeOptions {
   maxCells: number;
   concurrency?: number;
   initialGrid?: number;
+  initialQueue?: Cell[];
+  completedCellIds?: string[];
+  maxTimeMs?: number;
   onProgress?: (p: { done: number; queued: number; saturated: number; found: number }) => void;
   signal?: AbortSignal;
 }
-export interface QuadtreeStats { cellsSearched: number; cellsSaturatedAtMaxDepth: number; truncated: boolean }
+export interface QuadtreeStats {
+  cellsSearched: number;
+  cellsSaturatedAtMaxDepth: number;
+  truncated: boolean;
+  totalFound?: number;
+}
+
+export interface QuadtreeResult<T> {
+  items: T[];
+  stats: QuadtreeStats;
+  pendingCells: Cell[];
+  completedCellIds: string[];
+}
 
 /**
- * Cobertura máxima: busca cada célula; se saturada (count >= saturation) e ainda houver
- * profundidade, divide em 4 filhos e enfileira. Concorrência limitada. Resultados deduplicados por `keyOf`.
+ * Cobertura máxima com controle de continuidade e saturação:
+ * Busca cada célula; se saturada (count >= saturation) e ainda houver profundidade,
+ * divide recursivamente em 4 quadrantes. Suporta cursor (initialQueue) e limite de tempo seguro.
  */
 export async function runQuadtree<T>(
   bbox: BBox,
   search: (cell: Cell) => Promise<CellResult<T>>,
   keyOf: (item: T) => string,
   opts: QuadtreeOptions,
-): Promise<{ items: T[]; stats: QuadtreeStats }> {
-  const queue: Cell[] = initialCells(bbox, opts.initialGrid ?? 1);
+): Promise<QuadtreeResult<T>> {
+  const queue: Cell[] = opts.initialQueue?.length
+    ? [...opts.initialQueue]
+    : initialCells(bbox, opts.initialGrid ?? 1);
+
+  const completedSet = new Set<string>(opts.completedCellIds ?? []);
   const found = new Map<string, T>();
   const stats: QuadtreeStats = { cellsSearched: 0, cellsSaturatedAtMaxDepth: 0, truncated: false };
   let saturated = 0, active = 0, done = 0;
   const conc = Math.max(1, opts.concurrency ?? 2);
+  const startTime = Date.now();
 
   await new Promise<void>((resolve) => {
     const pump = () => {
-      if (opts.signal?.aborted) { stats.truncated = true; queue.length = 0; }
-      while (active < conc && queue.length && stats.cellsSearched < opts.maxCells) {
+      const isTimeOut = opts.maxTimeMs ? (Date.now() - startTime) >= opts.maxTimeMs : false;
+      if (opts.signal?.aborted || isTimeOut) {
+        stats.truncated = true;
+        if (opts.signal?.aborted) queue.length = 0;
+        if (active === 0) return resolve();
+      }
+
+      while (active < conc && queue.length && stats.cellsSearched < opts.maxCells && !isTimeOut) {
         const cell = queue.shift()!;
+        if (completedSet.has(cell.id)) {
+          continue;
+        }
+
         stats.cellsSearched++;
         active++;
         search(cell)
           .then((res) => {
+            completedSet.add(cell.id);
             for (const it of res.items) found.set(keyOf(it), found.get(keyOf(it)) ?? it);
             if (res.count >= opts.saturation) {
               saturated++;
-              if (cell.depth < opts.maxDepth) queue.push(...subdivide(cell));
-              else stats.cellsSaturatedAtMaxDepth++;
+              if (cell.depth < opts.maxDepth) {
+                queue.push(...subdivide(cell));
+              } else {
+                stats.cellsSaturatedAtMaxDepth++;
+              }
             }
           })
-          .catch(() => { /* célula falhou: segue com as demais */ })
+          .catch(() => {
+            /* célula falhou: segue com as demais */
+          })
           .finally(() => {
             active--; done++;
             opts.onProgress?.({ done, queued: queue.length, saturated, found: found.size });
             pump();
           });
       }
-      if (active === 0 && (queue.length === 0 || stats.cellsSearched >= opts.maxCells)) {
-        if (queue.length) stats.truncated = true;
+
+      if (active === 0 && (queue.length === 0 || stats.cellsSearched >= opts.maxCells || isTimeOut)) {
+        if (queue.length > 0) stats.truncated = true;
         resolve();
       }
     };
     pump();
   });
-  return { items: [...found.values()], stats };
+
+  stats.totalFound = found.size;
+  return {
+    items: [...found.values()],
+    stats,
+    pendingCells: queue,
+    completedCellIds: Array.from(completedSet),
+  };
 }

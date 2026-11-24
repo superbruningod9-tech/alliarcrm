@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   Radar, MapPin, ListPlus, Loader2, MessageCircle, Phone, Mail, Globe,
   Download, Sparkles, Building2, UserCheck, ShieldCheck, Zap, Info, Compass, Layers, CheckCircle2,
-  ArrowUpDown, Target, TrendingUp
+  ArrowUpDown, Target, TrendingUp, ChevronDown, ChevronUp, Check, AlertCircle, FileText, Share2, Activity
 } from "lucide-react";
 import { seo } from "@/lib/seo";
 import { useApp } from "@/lib/store";
@@ -13,10 +13,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AreaMap, type AreaShape, type DrawMode } from "@/components/alliar/AreaMap";
-import { discoverArea, discoverBulk, saveDiscoveredLeads, enrichLeadSingle } from "@/lib/discovery.functions";
+import {
+  discoverArea,
+  discoverBulk,
+  saveDiscoveredLeads,
+  enrichLeadSingle,
+  enrichDiscoveredLeadsBatch,
+} from "@/lib/discovery.functions";
 import { expandNiches } from "@/lib/discovery/synonyms";
 import { sortLeads, type SortMode } from "@/lib/discovery/scoring";
-import type { MasterLead, Cell } from "@/lib/discovery/types";
+import type { Cell } from "@/lib/discovery/quadtree";
+import type { MasterLead } from "@/lib/discovery/types";
 
 export const Route = createFileRoute("/_authenticated/descoberta")({
   head: () => seo("Motor de Descoberta · Alliar CRM", "Encontre empresas reais por mapa, nicho ou lista, com enriquecimento e envio direto ao funil."),
@@ -52,6 +59,8 @@ function DiscoveryPage() {
   const [continuing, setContinuing] = useState(false);
   const [enrichingBatch, setEnrichingBatch] = useState(false);
   const [enrichProgress, setEnrichProgress] = useState("");
+  const [enrichStats, setEnrichStats] = useState<{ cnpjs: number; whatsapps: number; sites: number } | null>(null);
+  const [expandedLeadKey, setExpandedLeadKey] = useState<string | null>(null);
   const [leads, setLeads] = useState<MasterLead[]>([]);
   const [pending, setPending] = useState<string[]>([]);
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -199,72 +208,85 @@ function DiscoveryPage() {
 
   const chosen = leads.filter((l) => sel.has(l.key));
 
-  // Enriquecimento em lote sequencial com 1s de intervalo
-  async function runBatchEnrich() {
-    if (!chosen.length) return toast.info("Selecione empresas para enriquecer");
-    setEnrichingBatch(true);
-    let success = 0;
-
-    for (let i = 0; i < chosen.length; i++) {
-      const item = chosen[i]!;
-      setEnrichProgress(`Enriquecendo ${i + 1} de ${chosen.length}: ${item.name}...`);
-      try {
-        const enrichedData = await enrichLeadSingle({
-          data: {
-            key: item.key,
-            name: item.name,
-            website: item.website,
-            cnpj: item.cnpj,
-            city: item.city || city,
-          },
-        });
-
-        if (enrichedData) {
-          setLeads((prev) =>
-            prev.map((lead) => {
-              if (lead.key !== item.key) return lead;
-              const phones = [...lead.phones];
-              if (enrichedData.phones?.length) {
-                enrichedData.phones.forEach((p: string) => {
-                  const clean = p.replace(/\D/g, "");
-                  if (!phones.some((existing) => existing.e164.includes(clean))) {
-                    phones.push({
-                      e164: clean.startsWith("55") ? `+${clean}` : `+55${clean}`,
-                      national: p,
-                      ddd: clean.slice(clean.startsWith("55") ? 2 : 0, 4),
-                      type: clean.length > 10 ? "mobile" : "landline",
-                      whatsappLikely: clean.length > 10,
-                      sources: ["receita"],
-                      confirmed: true,
-                    });
-                  }
-                });
-              }
-
-              return {
-                ...lead,
-                phones,
-                website: enrichedData.website || lead.website,
-                socials: { ...lead.socials, ...enrichedData.socials },
-                fiscal: enrichedData.fiscal || lead.fiscal,
-                siteDiagnosis: enrichedData.siteDiagnosis || lead.siteDiagnosis,
-              };
-            })
-          );
-          success++;
-        }
-      } catch (err) {
-        console.warn(`Falha ao enriquecer ${item.name}`, err);
-      }
-      // 1 segundo de intervalo para respeitar APIs gratuitas
-      if (i < chosen.length - 1) {
-        await new Promise((r) => setTimeout(r, 1000));
-      }
+  /** Enriquecimento estruturado em lote de empresas (todas as encontradas ou selecionadas) */
+  async function runBatchEnrich(onlySelected = true) {
+    const targets = onlySelected ? chosen : leads;
+    if (!targets.length) {
+      toast.info(onlySelected ? "Selecione empresas para enriquecer" : "Nenhuma empresa para enriquecer");
+      return;
     }
 
-    setEnrichingBatch(false);
-    setEnrichProgress("");
-    toast.success(`${success} empresa(s) enriquecidas com sucesso!`);
+    setEnrichingBatch(true);
+    setEnrichProgress(`Iniciando enriquecimento estruturado em lote para ${targets.length} empresa(s)...`);
+
+    try {
+      const res = await enrichDiscoveredLeadsBatch({
+        data: {
+          leads: targets as any,
+          forceRefresh: false,
+        },
+      });
+
+      if (res.leads && res.leads.length > 0) {
+        const enrichedMap = new Map<string, MasterLead>();
+        for (const el of res.leads as MasterLead[]) {
+          enrichedMap.set(el.key, el);
+        }
+
+        setLeads((prev) =>
+          prev.map((lead) => {
+            const enriched = enrichedMap.get(lead.key);
+            return enriched ? enriched : lead;
+          })
+        );
+
+        setEnrichStats({
+          cnpjs: res.cnpjsDiscovered,
+          whatsapps: res.whatsappsDiscovered,
+          sites: res.sitesCrawled,
+        });
+
+        toast.success(
+          `Enriquecimento concluído! ${res.cnpjsDiscovered} CNPJ(s) verificados, ${res.whatsappsDiscovered} WhatsApp(s) e ${res.sitesCrawled} sites analisados.`
+        );
+      }
+    } catch (err) {
+      console.error("[runBatchEnrich] Erro:", err);
+      toast.error("Falha ao executar o enriquecimento em lote.");
+    } finally {
+      setEnrichingBatch(false);
+      setEnrichProgress("");
+    }
+  }
+
+  /** Reenriquece sob demanda um único lead da lista */
+  async function runSingleLeadEnrich(lead: MasterLead) {
+    try {
+      toast.info(`Atualizando ficha de ${lead.name}...`);
+      const res = await enrichLeadSingle({
+        data: {
+          key: lead.key,
+          name: lead.name,
+          website: lead.website,
+          cnpj: lead.cnpj,
+          city: lead.city || city,
+          state: lead.state,
+          address: lead.address,
+          cep: lead.cep,
+          forceRefresh: true,
+        },
+      });
+
+      if (res.lead) {
+        setLeads((prev) =>
+          prev.map((l) => (l.key === lead.key ? (res.lead as MasterLead) : l))
+        );
+        toast.success(`Ficha de ${lead.name} atualizada com dados mais recentes!`);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(`Falha ao enriquecer ${lead.name}.`);
+    }
   }
 
   async function save() {
@@ -567,6 +589,20 @@ function DiscoveryPage() {
         </div>
       )}
 
+      {enrichStats && (
+        <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-200 font-semibold">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>
+              <strong>Enriquecimento em lote concluído com sucesso:</strong> {enrichStats.cnpjs} CNPJ(s) verificados, {enrichStats.whatsapps} WhatsApp(s) e {enrichStats.sites} sites analisados.
+            </span>
+          </div>
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-800 dark:text-emerald-200" onClick={() => setEnrichStats(null)}>
+            Fechar
+          </Button>
+        </div>
+      )}
+
       {enrichProgress && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 font-semibold animate-pulse">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -603,14 +639,27 @@ function DiscoveryPage() {
 
             <Button
               size="sm"
-              variant="secondary"
-              disabled={!chosen.length || enrichingBatch}
-              onClick={runBatchEnrich}
-              className="gap-1.5 font-semibold"
+              variant="default"
+              disabled={enrichingBatch}
+              onClick={() => runBatchEnrich(false)}
+              className="gap-1.5 font-bold shadow-xs bg-amber-600 hover:bg-amber-700 text-white"
             >
-              {enrichingBatch ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-amber-500" />}
-              Completar dados grátis em lote ({chosen.length})
+              {enrichingBatch ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 text-white" />}
+              Enriquecer todas ({leads.length})
             </Button>
+
+            {chosen.length > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={enrichingBatch}
+                onClick={() => runBatchEnrich(true)}
+                className="gap-1.5 font-semibold"
+              >
+                <Zap className="h-3.5 w-3.5 text-amber-500" />
+                Enriquecer selecionadas ({chosen.length})
+              </Button>
+            )}
 
             <Button size="sm" disabled={!chosen.length || busy} onClick={toPipeline} className="font-semibold">
               Enviar {chosen.length} ao funil
@@ -772,6 +821,21 @@ function DiscoveryPage() {
                               </p>
                             )}
                           </div>
+                          {l.completeness && (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold border flex items-center gap-1 ${
+                                l.completeness.overallScore >= 80
+                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                                  : l.completeness.overallScore >= 50
+                                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-300 dark:border-blue-800"
+                                  : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800"
+                              }`}
+                              title={`Completude da ficha: ${l.completeness.overallScore}% (${l.completeness.status})`}
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              Ficha {l.completeness.overallScore}%
+                            </span>
+                          )}
                         </div>
                         <p className="truncate text-xs text-muted-foreground mt-1">
                           {l.category ?? l.categories[0] ?? "Comércio/Serviço"}
@@ -838,32 +902,60 @@ function DiscoveryPage() {
                       )}
                     </div>
 
-                    {/* Informações de contato reais */}
+                    {/* Informações de contato e canais segregados */}
                     <div className="mt-3 space-y-1.5 text-xs border-t pt-2.5">
-                      {mainPhone && (
+                      {/* WhatsApp Direto */}
+                      {(l.contactChannels?.whatsapp || (mainPhone && phoneDigits.length >= 10)) && (
                         <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 text-foreground font-medium truncate">
+                            <MessageCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                            WhatsApp: {l.contactChannels?.whatsapp || mainPhone?.national || mainPhone?.e164}
+                          </span>
                           <a
-                            href={`tel:${mainPhone.e164}`}
-                            className="flex items-center gap-1.5 text-foreground hover:underline font-medium"
+                            href={`https://wa.me/${(l.contactChannels?.whatsapp || phoneDigits).replace(/\D/g, "").replace(/^(?!55)/, "55")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full hover:bg-emerald-200 transition shrink-0"
                           >
-                            <Phone className="h-3.5 w-3.5 text-primary" />
-                            {mainPhone.national || mainPhone.e164}
+                            Chat
                           </a>
-                          {phoneDigits.length >= 10 && (
-                            <a
-                              href={`https://wa.me/${phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full hover:bg-emerald-100"
-                            >
-                              <MessageCircle className="h-3 w-3" />
-                              WhatsApp
-                            </a>
-                          )}
                         </div>
                       )}
 
-                      {l.emails[0] && (
+                      {/* Celular / Fixo */}
+                      {l.contactChannels?.landline && (
+                        <div className="flex items-center gap-1.5 text-foreground font-medium truncate">
+                          <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span>Fixo: {l.contactChannels.landline}</span>
+                        </div>
+                      )}
+                      {!l.contactChannels && mainPhone && !mainPhone.whatsappLikely && (
+                        <div className="flex items-center gap-1.5 text-foreground font-medium truncate">
+                          <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span>Fixo: {mainPhone.national || mainPhone.e164}</span>
+                        </div>
+                      )}
+
+                      {/* E-mails Comercial vs Atendimento */}
+                      {l.contactChannels?.commercialEmail && (
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Mail className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                          <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300">Comercial:</span>
+                          <a href={`mailto:${l.contactChannels.commercialEmail}`} className="truncate hover:underline text-foreground">
+                            {l.contactChannels.commercialEmail}
+                          </a>
+                        </div>
+                      )}
+                      {l.contactChannels?.supportEmail && l.contactChannels.supportEmail !== l.contactChannels.commercialEmail && (
+                        <div className="flex items-center gap-1.5 truncate">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-[11px] font-medium text-muted-foreground">Atendimento:</span>
+                          <a href={`mailto:${l.contactChannels.supportEmail}`} className="truncate hover:underline text-muted-foreground">
+                            {l.contactChannels.supportEmail}
+                          </a>
+                        </div>
+                      )}
+                      {!l.contactChannels && l.emails[0] && (
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                           <a href={`mailto:${l.emails[0].value}`} className="truncate hover:underline text-muted-foreground">
@@ -872,19 +964,33 @@ function DiscoveryPage() {
                         </div>
                       )}
 
-                      {l.website && (
+                      {/* Site ou Aviso de Empresa Sem Site */}
+                      {l.website ? (
                         <div className="flex items-center gap-1.5 truncate">
                           <Globe className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                           <a href={l.website} target="_blank" rel="noopener noreferrer" className="truncate text-blue-600 underline">
                             {l.website.replace(/^https?:\/\//, "")}
                           </a>
                         </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+                          <Globe className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                          <span className="italic">Sem site (enriquecido via fontes públicas)</span>
+                        </div>
                       )}
 
+                      {/* CNPJ e Situação */}
                       {l.cnpj && (
                         <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
                           <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                           <span className="truncate">CNPJ {l.cnpj}</span>
+                          {l.fiscal?.situacao && (
+                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                              /ativa/i.test(l.fiscal.situacao) ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-red-100 text-red-800"
+                            }`}>
+                              {l.fiscal.situacao}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -951,6 +1057,133 @@ function DiscoveryPage() {
                       </span>
                     )}
                   </div>
+
+                  {/* Botão Expandir Ficha Completa & Reenriquecer */}
+                  <div className="mt-2.5 pt-2 border-t flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedLeadKey(expandedLeadKey === l.key ? null : l.key)}
+                      className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {expandedLeadKey === l.key ? (
+                        <>
+                          <ChevronUp className="h-3.5 w-3.5" />
+                          Ocultar ficha completa
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                          Ver ficha completa e proveniência
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => runSingleLeadEnrich(l)}
+                      className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
+                      title="Atualizar dados desta empresa"
+                    >
+                      <Zap className="h-3 w-3 text-amber-500" />
+                      Reenriquecer
+                    </button>
+                  </div>
+
+                  {/* Painel Expansível de Detalhes, Completude e Procedência */}
+                  {expandedLeadKey === l.key && (
+                    <div className="mt-3 p-3 rounded-xl bg-muted/40 border space-y-2.5 text-xs text-foreground">
+                      {/* 1. Completude em 4 seções */}
+                      {l.completeness && (
+                        <div className="space-y-1.5 border-b pb-2.5">
+                          <div className="font-bold flex items-center justify-between text-xs">
+                            <span className="flex items-center gap-1">
+                              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                              Relatório de Completude:
+                            </span>
+                            <span className="font-extrabold text-primary">{l.completeness.overallScore}%</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+                            <div className="p-1 rounded bg-background border">
+                              <span className="text-muted-foreground block font-medium">Identificação:</span>
+                              <span className="font-bold capitalize">{l.completeness.sections.identification.status} ({l.completeness.sections.identification.score}%)</span>
+                            </div>
+                            <div className="p-1 rounded bg-background border">
+                              <span className="text-muted-foreground block font-medium">Cadastro Fiscal:</span>
+                              <span className="font-bold capitalize">{l.completeness.sections.fiscal.status} ({l.completeness.sections.fiscal.score}%)</span>
+                            </div>
+                            <div className="p-1 rounded bg-background border">
+                              <span className="text-muted-foreground block font-medium">Contatos:</span>
+                              <span className="font-bold capitalize">{l.completeness.sections.contact.status} ({l.completeness.sections.contact.score}%)</span>
+                            </div>
+                            <div className="p-1 rounded bg-background border">
+                              <span className="text-muted-foreground block font-medium">Presença Digital:</span>
+                              <span className="font-bold capitalize">{l.completeness.sections.digital.status} ({l.completeness.sections.digital.score}%)</span>
+                            </div>
+                          </div>
+                          {l.completeness.missingFields.length > 0 && (
+                            <div className="text-[10px] text-amber-700 dark:text-amber-300 pt-0.5 leading-tight">
+                              <strong>Campos não obtidos em fontes públicas:</strong> {l.completeness.missingFields.join(", ")}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 2. Dados Fiscais da Receita Federal */}
+                      {l.fiscal && (
+                        <div className="space-y-1 border-b pb-2 text-[11px]">
+                          <div className="font-semibold text-foreground flex items-center gap-1">
+                            <Building2 className="h-3.5 w-3.5 text-primary" />
+                            <span>Receita Federal / BrasilAPI:</span>
+                          </div>
+                          {l.fiscal.razaoSocial && <div><span className="text-muted-foreground">Razão Social:</span> {l.fiscal.razaoSocial}</div>}
+                          {l.fiscal.abertura && <div><span className="text-muted-foreground">Fundação:</span> {l.fiscal.abertura} {l.fiscal.idadeAnos != null ? `(${l.fiscal.idadeAnos} anos de mercado)` : ""}</div>}
+                          {l.fiscal.cnaePrincipal && <div><span className="text-muted-foreground">CNAE:</span> {l.fiscal.cnaePrincipal.code} - {l.fiscal.cnaePrincipal.description}</div>}
+                          {l.fiscal.enderecoCadastral && (
+                            <div><span className="text-muted-foreground">Endereço Cadastral:</span> {l.fiscal.enderecoCadastral.logradouro}, {l.fiscal.enderecoCadastral.bairro} - {l.fiscal.enderecoCadastral.municipio}/{l.fiscal.enderecoCadastral.uf}</div>
+                          )}
+                          {l.fiscal.socios && l.fiscal.socios.length > 0 && (
+                            <div><span className="text-muted-foreground">Sócios (QSA):</span> {l.fiscal.socios.map((s) => `${s.nome} (${s.qualificacao || "Sócio"})`).join("; ")}</div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 3. Diagnóstico do Website e Tecnologias */}
+                      {l.siteDiagnosis && (
+                        <div className="space-y-1 text-[11px] border-b pb-2">
+                          <div className="font-semibold text-foreground flex items-center gap-1">
+                            <Activity className="h-3.5 w-3.5 text-blue-600" />
+                            <span>Diagnóstico do Site:</span>
+                          </div>
+                          {l.siteDiagnosis.technologies && l.siteDiagnosis.technologies.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {l.siteDiagnosis.technologies.map((t) => (
+                                <span key={t} className="rounded bg-indigo-100 dark:bg-indigo-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800 dark:text-indigo-200">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {l.siteDiagnosis.hasContactForm && <div className="text-emerald-700 dark:text-emerald-300">✓ Formulário de contato identificado no site</div>}
+                          {l.siteDiagnosis.servicesAndSpecialties && l.siteDiagnosis.servicesAndSpecialties.length > 0 && (
+                            <div><span className="text-muted-foreground">Serviços/Especialidades:</span> {l.siteDiagnosis.servicesAndSpecialties.slice(0, 5).join(", ")}</div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 4. Qualidade e Procedência dos Campos */}
+                      {l.qualityStatus && (
+                        <div className="space-y-1 text-[10px] text-muted-foreground">
+                          <div className="font-semibold text-foreground">Procedência & Qualidade dos Dados:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(l.qualityStatus).map(([field, meta]) => (
+                              <span key={field} className="rounded px-1.5 py-0.5 bg-background border">
+                                <strong>{field}:</strong> {meta.status} ({meta.source})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

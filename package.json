@@ -11,7 +11,12 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run format && npm run check:types",
+    "check:types": "npm run type-check",
+    "check:lint": "npm run lint",
+    "check:build": "npm run build",
+    "test:related": "npm run test:related"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -48,12 +53,12 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@supabase/supabase-js": "^2.119.0",
-    "@twilio/voice-sdk": "^1.0.0",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-router": "1.170.41",
     "@tanstack/react-start": "1.168.60",
     "@tanstack/router-plugin": "1.168.42",
+    "@twilio/voice-sdk": "^1.0.0",
     "ai": "7.0.166",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

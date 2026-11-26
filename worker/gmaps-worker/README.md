@@ -11,7 +11,7 @@ Os seletores do Google Maps mudam com frequência: espere ajustes. O código nã
 ## Uso
 ```
 cd worker/gmaps-worker && npm i && npx playwright install --with-deps chromium
-REDACTED_SUPABASE_URL
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm start
 ```
 `SUPABASE_SERVICE_ROLE_KEY` fica SOMENTE no ambiente do worker — nunca no repositório nem no Netlify do front.
 Antes, aplique `docs/sql/2026-motor-descoberta.sql`. O worker consome `search_jobs` (status `queued`, modo `area`),

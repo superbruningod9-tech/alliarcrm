@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
   Radar, MapPin, ListPlus, Loader2, MessageCircle, Phone, Mail, Globe,
@@ -48,13 +48,13 @@ const CITIES: Record<string, { lat: number; lng: number }> = {
 
 type Tab = "map" | "bulk";
 
-function DiscoveryPage() {
+export function DiscoveryPage() {
   const app = useApp();
   const [tab, setTab] = useState<Tab>("map");
   const [city, setCity] = useState("Porto Alegre");
   const [radiusKm, setRadiusKm] = useState(15);
   const [mode, setMode] = useState<DrawMode>("circle");
-  const [shape, setShape] = useState<AreaShape>(null);
+  const [shape, setShape] = useState<AreaShape>({ type: "circle", center: CITIES["Porto Alegre"]!, radiusKm: 15 });
   const [niche, setNiche] = useState("");
   const [expand, setExpand] = useState(true);
   const [bulk, setBulk] = useState("");
@@ -100,6 +100,82 @@ function DiscoveryPage() {
     };
     hasGoogleKey?: boolean;
   } | null>(null);
+
+  const storageKey = `alliar:discovery:${app.tenantId || "default"}:${app.currentUserId || "anon"}`;
+  const hydratedKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hydratedKeyRef.current === storageKey) return;
+    hydratedKeyRef.current = storageKey;
+    try {
+      const raw = window.sessionStorage.getItem(storageKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved.tab === "map" || saved.tab === "bulk") setTab(saved.tab);
+      if (typeof saved.city === "string" && CITIES[saved.city]) setCity(saved.city);
+      if (typeof saved.radiusKm === "number") setRadiusKm(saved.radiusKm);
+      if (saved.mode === "pan" || saved.mode === "circle" || saved.mode === "polygon") setMode(saved.mode);
+      if (saved.shape !== undefined) setShape(saved.shape);
+      if (typeof saved.niche === "string") setNiche(saved.niche);
+      if (typeof saved.expand === "boolean") setExpand(saved.expand);
+      if (typeof saved.bulk === "string") setBulk(saved.bulk);
+      if (Array.isArray(saved.leads)) setLeads(saved.leads);
+      if (Array.isArray(saved.sel)) setSel(new Set(saved.sel));
+      if (typeof saved.enterpriseFilter === "string") setEnterpriseFilter(saved.enterpriseFilter);
+      if (typeof saved.updateFilter === "string") setUpdateFilter(saved.updateFilter);
+      if (typeof saved.sortMode === "string") setSortMode(saved.sortMode);
+      if (saved.cursor !== undefined) setCursor(saved.cursor);
+      if (saved.searchStats !== undefined) setSearchStats(saved.searchStats);
+      if (saved.lastUpdatedDate !== undefined) setLastUpdatedDate(saved.lastUpdatedDate);
+      if (saved.note !== undefined) setNote(saved.note);
+    } catch {}
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || hydratedKeyRef.current !== storageKey) return;
+    try {
+      const payload = {
+        tab,
+        city,
+        radiusKm,
+        mode,
+        shape,
+        niche,
+        expand,
+        bulk,
+        leads,
+        sel: Array.from(sel),
+        enterpriseFilter,
+        updateFilter,
+        sortMode,
+        cursor,
+        searchStats,
+        lastUpdatedDate,
+        note,
+      };
+      window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {}
+  }, [
+    storageKey,
+    tab,
+    city,
+    radiusKm,
+    mode,
+    shape,
+    niche,
+    expand,
+    bulk,
+    leads,
+    sel,
+    enterpriseFilter,
+    updateFilter,
+    sortMode,
+    cursor,
+    searchStats,
+    lastUpdatedDate,
+    note,
+  ]);
 
   const nicheProfile = niche.trim() ? expandNiches([niche]) : null;
   const terms = nicheProfile ? nicheProfile.synonyms : [];
@@ -499,10 +575,15 @@ function DiscoveryPage() {
       {tab === "map" ? (
         <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
           <AreaMap
-            center={CITIES[city]!}
+            center={shape?.type === "circle" ? shape.center : CITIES[city]!}
             mode={mode}
-            shape={shape}
-            onShape={setShape}
+            shape={shape ?? { type: "circle", center: CITIES[city]!, radiusKm }}
+            onShape={(nextShape) => {
+              setShape(nextShape);
+              if (nextShape?.type === "circle") {
+                setRadiusKm(Math.round(nextShape.radiusKm * 10) / 10);
+              }
+            }}
             markers={leads.filter((l) => l.lat != null && l.lng != null).map((l) => ({ lat: l.lat!, lng: l.lng!, label: l.name }))}
           />
 
@@ -513,8 +594,9 @@ function DiscoveryPage() {
                 className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
                 value={city}
                 onChange={(e) => {
-                  setCity(e.target.value);
-                  setShape(null);
+                  const nextCity = e.target.value;
+                  setCity(nextCity);
+                  setShape({ type: "circle", center: CITIES[nextCity]!, radiusKm });
                 }}
               >
                 {Object.keys(CITIES).map((c) => (
@@ -527,13 +609,23 @@ function DiscoveryPage() {
               Raio de busca (ao redor do centro)
               <select
                 className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
-                value={radiusKm}
-                onChange={(e) => setRadiusKm(Number(e.target.value))}
+                value={shape?.type === "circle" ? Math.round(shape.radiusKm * 10) / 10 : radiusKm}
+                onChange={(e) => {
+                  const nextRadius = Number(e.target.value);
+                  setRadiusKm(nextRadius);
+                  const currentCenter = shape?.type === "circle" ? shape.center : CITIES[city]!;
+                  setShape({ type: "circle", center: currentCenter, radiusKm: nextRadius });
+                }}
               >
                 <option value={5}>5 km (Bairros Centrais)</option>
                 <option value={15}>15 km (Grande parte da cidade)</option>
                 <option value={30}>30 km (Região Metropolitana)</option>
                 <option value={50}>50 km (Macrorregião)</option>
+                {shape?.type === "circle" && ![5, 15, 30, 50].includes(Math.round(shape.radiusKm * 10) / 10) && (
+                  <option value={Math.round(shape.radiusKm * 10) / 10}>
+                    {Math.round(shape.radiusKm * 10) / 10} km (Personalizado no mapa)
+                  </option>
+                )}
               </select>
             </label>
 

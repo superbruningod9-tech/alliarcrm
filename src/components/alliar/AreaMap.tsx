@@ -74,7 +74,7 @@ export function AreaMap({ center, zoom = 13, mode, shape, onShape, markers = [],
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
     if (mode === "circle" && shape?.type === "circle") {
-      onShape({ ...shape, radiusKm: Math.min(30, Math.max(0.2, kmBetween(shape.center, fromEvent(e)))) });
+      onShape({ ...shape, radiusKm: Math.min(50, Math.max(0.2, kmBetween(shape.center, fromEvent(e)))) });
     } else if (mode === "pan" || mode === "polygon") {
       d.x = e.clientX; d.y = e.clientY;
       if (d.moved) { const c = unproject(origin.x - dx, origin.y - dy, view.z); setView((v) => ({ ...v, c })); onMove?.(c); }

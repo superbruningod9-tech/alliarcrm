@@ -18,15 +18,18 @@ import {
   Thermometer,
   ArrowUpDown,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useApp, STAGES, type Lead } from "@/lib/store";
 import { brl } from "@/lib/pix";
+import { normalizePhoneForDialer } from "@/lib/whatsapp";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { VoiceButton } from "./Voice";
 import { PixDialog } from "./PixDialog";
+import { PhoneQrDialog } from "./PhoneQrDialog";
 import { TempBadge } from "./Badges";
 import { formatPhone } from "@/lib/phone";
 import { Instagram, Linkedin } from "lucide-react";
@@ -37,6 +40,7 @@ const ICON = { msg: MessageCircle, call: Phone, proposta: FileText, audio: Mic, 
 export function LeadSheet() {
   const { leads, selected, select, addEvent, updateLead, tenantId } = useApp();
   const [pix, setPix] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   // Edit mode
   const [editing, setEditing] = useState(false);
@@ -416,6 +420,18 @@ export function LeadSheet() {
                 <Button size="sm" onClick={() => setPix(true)} className="gap-1 text-xs">
                   <QrCode className="size-3.5" /> Proposta + PIX
                 </Button>
+                {lead.phone && (
+                  <>
+                    <Button size="sm" variant="outline" asChild className="gap-1 text-xs">
+                      <Link to="/dialer" search={{ leadId: lead.id, phone: lead.phone } as never}>
+                        <Phone className="size-3.5 text-[#C25E38]" /> Discar
+                      </Link>
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setQrOpen(true)} className="gap-1 text-xs">
+                      <QrCode className="size-3.5" /> QR Fone
+                    </Button>
+                  </>
+                )}
                 {/* Dados Enriquecidos */}
                 {lead.email && (
                   <div className="mt-1 text-sm">
@@ -426,7 +442,10 @@ export function LeadSheet() {
                 )}
                 {lead.phone && (
                   <div className="mt-1 text-sm">
-                    <a href={`tel:${lead.phone}`} className="underline text-blue-600">
+                    <a
+                      href={normalizePhoneForDialer(lead.phone).telUri || `tel:${lead.phone}`}
+                      className="underline text-blue-600"
+                    >
                       {formatPhone(lead.phone)}
                     </a>
                   </div>
@@ -434,7 +453,10 @@ export function LeadSheet() {
                 {lead.socials?.whatsapp && (
                   <div className="mt-1 text-sm">
                     <a
-                      href={`https://wa.me/${lead.socials.whatsapp.replace(/\D/g, "")}`}
+                      href={
+                        normalizePhoneForDialer(lead.socials.whatsapp).waUrl ||
+                        `https://wa.me/${lead.socials.whatsapp.replace(/\D/g, "")}`
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="underline text-green-600"
@@ -612,6 +634,7 @@ export function LeadSheet() {
       </Sheet>
 
       <PixDialog lead={lead} open={pix} onOpenChange={setPix} />
+      <PhoneQrDialog open={qrOpen} onOpenChange={setQrOpen} phone={lead.phone} leadName={lead.name} />
     </>
   );
 }

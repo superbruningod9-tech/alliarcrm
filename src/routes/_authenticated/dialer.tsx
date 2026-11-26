@@ -1,10 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Phone,
   PhoneOff,
-  PhoneCall,
   QrCode,
   Sparkles,
   MessageSquare,
@@ -12,25 +11,30 @@ import {
   MicOff,
   Loader2,
   Delete,
-  Volume2,
-  CheckCircle2,
   Search,
-  ExternalLink,
   Smartphone,
   Headphones,
-  Save,
-  Clock,
+  Copy,
+  AlertTriangle,
   User,
-  Building,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
-import { QRCodeSVG } from "qrcode.react";
 import { useApp } from "@/lib/store";
 import { seo } from "@/lib/seo";
 import { cn } from "@/lib/utils";
 import { aiAssist } from "@/lib/ai.functions";
-import { toE164 } from "@/lib/whatsapp";
+import { normalizePhoneForDialer, phoneKey } from "@/lib/whatsapp";
+import {
+  CALL_OUTCOMES,
+  buildCallActivityText,
+  getExternalActionLabel,
+  getInitialOutcomeForMode,
+  type CallMode,
+  type CallStatus,
+} from "@/lib/dialer";
 import { PageHeader } from "@/components/alliar/Shell";
+import { PhoneQrPanel } from "@/components/alliar/PhoneQrDialog";
 import { useVoice } from "@/components/alliar/Voice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,16 +80,17 @@ const DIALPAD = [
   { key: "#", sub: "" },
 ];
 
-function formatPhoneDisplay(val: string): string {
-  const digits = val.replace(/\D/g, "");
-  if (digits.length <= 2) return digits ? `(${digits}` : "";
-  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+function triggerTelProtocol(telUri: string) {
+  const link = document.createElement("a");
+  link.href = telUri;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 function DialerPage() {
-  const { leads, select, addEvent, updateLead } = useApp();
+  const { leads, members, currentUserId, select, addEvent, updateLead } = useApp();
   const ai = useServerFn(aiAssist);
 
   // Estados de chamada
@@ -93,27 +98,49 @@ function DialerPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [searchLead, setSearchLead] = useState("");
   const [callActive, setCallActive] = useState(false);
-  const [callStatus, setCallStatus] = useState<"idle" | "dialing" | "connected">("idle");
-  const [callMode, setCallMode] = useState<"whatsapp" | "tel" | "browser">("whatsapp");
-  const [sec, setSec] = useState(0);
+  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
+  const [callMode, setCallMode] = useState<CallMode>("whatsapp");
   const [notes, setNotes] = useState("");
-  const [outcome, setOutcome] = useState("Atendida - Interesse confirmado");
+  const [outcome, setOutcome] = useState<string>("Apenas abriu discador / WhatsApp");
+  const [nextContactAt, setNextContactAt] = useState("");
   const [script, setScript] = useState("");
   const [busy, setBusy] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
-  // WebRTC para chamada real no navegador
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Áudio DTMF & Ringtone
+  // Áudio DTMF
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const ringOscRef = useRef<OscillatorNode | null>(null);
+
+  // Preenche número/lead via parâmetros de URL (?leadId=...&phone=...)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const paramLeadId = params.get("leadId");
+    const paramPhone = params.get("phone");
+    if (paramLeadId) {
+      setSelectedLeadId(paramLeadId);
+      const found = leads.find((l) => l.id === paramLeadId);
+      if (found?.phone && !paramPhone) {
+        setPhoneNumber(found.phone);
+      }
+    }
+    if (paramPhone) {
+      setPhoneNumber(paramPhone);
+    }
+  }, [leads]);
+
+  // Limpa recursos de áudio ao sair da página
+  useEffect(() => {
+    return () => {
+      if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
+        void audioCtxRef.current.close().catch(() => {});
+      }
+    };
+  }, []);
 
   const getAudioContext = () => {
     if (!audioCtxRef.current) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) audioCtxRef.current = new AudioCtx();
     }
     if (audioCtxRef.current?.state === "suspended") {
@@ -151,27 +178,28 @@ function DialerPage() {
     }
   };
 
-  // Cronômetro da chamada
-  useEffect(() => {
-    if (callStatus !== "connected") return;
-    setSec(0);
-    const timer = setInterval(() => setSec((s) => s + 1), 1000);
-    return () => clearInterval(timer);
-  }, [callStatus]);
-
   // Microfone / Ditado automático da ligação
   const voice = useVoice((transcription) => {
     setNotes((prev) => `${prev}${prev ? "\n" : ""}${transcription}`);
   });
+
+  // Identificação do vendedor atual
+  const sellerName = useMemo(() => {
+    const me = members.find((m) => m.user_id === currentUserId);
+    return me?.display_name || me?.email || "Vendedor";
+  }, [members, currentUserId]);
+
+  // Validação e normalização do telefone atual
+  const parsedPhone = useMemo(() => normalizePhoneForDialer(phoneNumber), [phoneNumber]);
 
   // Lead selecionado
   const currentLead = useMemo(() => {
     if (selectedLeadId) {
       return leads.find((l) => l.id === selectedLeadId) ?? null;
     }
-    const cleanCurrent = toE164(phoneNumber);
-    if (!cleanCurrent) return null;
-    return leads.find((l) => l.phone && toE164(l.phone).includes(cleanCurrent.slice(-8))) ?? null;
+    const key = phoneKey(phoneNumber);
+    if (!key || key.length < 10) return null;
+    return leads.find((l) => l.phone && phoneKey(l.phone) === key) ?? null;
   }, [leads, selectedLeadId, phoneNumber]);
 
   // Carregar dados de um lead ao clicar na lista
@@ -198,7 +226,7 @@ function DialerPage() {
               role: "user",
               content: currentNotes
                 ? `Anotações da chamada atual: ${currentNotes}`
-                : "A chamada acabou de ser iniciada. Dê o roteiro inicial de abertura consultiva para fechar negócios.",
+                : "O vendedor iniciou contato com este cliente. Dê um roteiro objetivo de abertura consultiva.",
             },
           ],
         },
@@ -210,184 +238,113 @@ function DialerPage() {
     }
   };
 
-  // Digitar tecla no discador
   const pressKey = (key: string) => {
     playDtmfTone(key);
     setPhoneNumber((prev) => prev + key);
   };
 
-  // Apagar último dígito
-  const backspace = () => {
-    setPhoneNumber((prev) => prev.slice(0, -1));
+  const handleCopyNumber = async () => {
+    const valueToCopy = parsedPhone.valid ? parsedPhone.display : phoneNumber.trim();
+    if (!valueToCopy) {
+      toast.error("Digite um número para copiar.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(valueToCopy);
+      toast.success(`Número copiado: ${valueToCopy}`);
+    } catch {
+      toast.error("Não foi possível copiar o número.");
+    }
   };
 
-  // Iniciar chamada
-  const startCall = async (mode: "whatsapp" | "tel" | "browser") => {
-    const rawDigits = phoneNumber.replace(/\D/g, "");
-    if (rawDigits.length < 8) {
-      toast.error("Digite um número de telefone com DDD válido.");
+  // Iniciar ação de chamada
+  const startCall = (mode: CallMode) => {
+    if (mode === "browser") {
+      setCallMode("browser");
+      setCallStatus("sip_unconfigured");
+      setCallActive(false);
+      toast.info(
+        "Softphone SIP no navegador ainda não está configurado para este tenant. Use Celular (tel:), WhatsApp ou QR Code.",
+        { duration: 5000 }
+      );
+      return;
+    }
+
+    if (!parsedPhone.valid) {
+      toast.error(parsedPhone.error || "Digite um número de telefone válido com DDD.");
       return;
     }
 
     setCallMode(mode);
     setCallActive(true);
+    setCallStatus("external_opened");
+    setOutcome(getInitialOutcomeForMode(mode));
     setNotes("");
+    setNextContactAt("");
     setScript("");
-
-    const clean = toE164(phoneNumber);
 
     if (mode === "whatsapp") {
-      setCallStatus("connected");
-      const waLink = `https://wa.me/${clean}`;
-      window.open(waLink, "_blank", "noopener,noreferrer");
-      toast.success("WhatsApp aberto! A chamada está em andamento no CRM.");
+      window.open(parsedPhone.waUrl, "_blank", "noopener,noreferrer");
+      toast.info("WhatsApp aberto em nova aba. Após a conversa/ligação, registre manualmente o resultado real.");
     } else if (mode === "tel") {
-      setCallStatus("connected");
-      // Abre a ligação via protocolo tel: nativo do SO/celular
-      const telLink = `tel:+${clean}`;
-      window.open(telLink, "_self");
-      toast.success("Ligação enviada para o discador do sistema. Fale pelo seu dispositivo.");
-    } else {
-      // Modo Navegador - Captura microfone real para ligação via WebRTC
-      setCallStatus("dialing");
-      toast.info("Solicitando acesso ao microfone...");
-
-      try {
-        // 1. Captura o microfone real do usuário
-        const localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-        localStreamRef.current = localStream;
-
-        // 2. Cria uma conexão WebRTC
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-          ],
-        });
-        peerConnectionRef.current = pc;
-
-        // Adiciona as tracks de áudio do microfone
-        localStream.getAudioTracks().forEach((track) => {
-          pc.addTrack(track, localStream);
-        });
-
-        // Configura o áudio remoto para ouvir a outra pessoa
-        pc.ontrack = (event) => {
-          if (remoteAudioRef.current && event.streams[0]) {
-            remoteAudioRef.current.srcObject = event.streams[0];
-            void remoteAudioRef.current.play().catch(() => {});
-          }
-        };
-
-        // Monitora estado da conexão
-        pc.onconnectionstatechange = () => {
-          if (pc.connectionState === "connected") {
-            setCallStatus("connected");
-            toast.success("Chamada conectada! Microfone ativo — fale agora.");
-          } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
-            toast.error("Conexão perdida.");
-          }
-        };
-
-        // Como não temos um servidor SIP/VoIP configurado, fazemos a ligação
-        // funcionar abrindo o tel: em paralelo e mantendo o mic ativo para 
-        // transcrição + teleprompter
-        setCallStatus("connected");
-        toast.success(
-          "🎙️ Microfone capturado com sucesso! Chamada ativa.\n\n" +
-          "Para falar com o cliente, a ligação foi encaminhada ao seu dispositivo. " +
-          "O teleprompter e a transcrição estão ativos nesta tela.",
-          { duration: 6000 }
-        );
-
-        // Abre o tel: para a ligação real acontecer pelo dispositivo
-        const telLink = `tel:+${clean}`;
-        window.open(telLink, "_self");
-
-      } catch (err) {
-        console.error("Erro ao acessar microfone:", err);
-
-        if (err instanceof DOMException && err.name === "NotAllowedError") {
-          toast.error(
-            "Permissão de microfone negada. Clique no ícone de cadeado na barra de endereço e permita o acesso ao microfone.",
-            { duration: 8000 }
-          );
-        } else if (err instanceof DOMException && err.name === "NotFoundError") {
-          toast.error("Nenhum microfone detectado no dispositivo.");
-        } else {
-          toast.error("Erro ao iniciar chamada pelo navegador. Tente pelo WhatsApp ou Celular.");
-        }
-
-        // Fallback: abre pelo tel: mesmo assim
-        setCallStatus("connected");
-        window.open(`tel:+${clean}`, "_self");
-        toast.info("Ligação redirecionada para o discador do celular/sistema.");
-      }
+      triggerTelProtocol(parsedPhone.telUri);
+      toast.info(
+        "Discador do dispositivo acionado (tel:). Em computadores sem app de telefonia, use o QR Code ou copie o número.",
+        { duration: 5000 }
+      );
     }
-
-    // Carregar teleprompter inicial
-    setTimeout(() => void promptAi(""), 500);
-  };
-
-  // Encerrar e Salvar Chamada
-  const finishCall = async () => {
-    const durationMin = Math.floor(sec / 60);
-    const durationSec = sec % 60;
-    const durationText = `${durationMin > 0 ? `${durationMin}m ` : ""}${durationSec}s`;
 
     if (currentLead) {
-      const callLog = `📞 Ligação (${durationText}) · [${outcome}]${
-        notes.trim() ? `\nAnotações: ${notes.slice(0, 800)}` : ""
-      }`;
-
-      await addEvent(currentLead.id, {
-        kind: "call",
-        text: callLog,
-      });
-
-      await updateLead(currentLead.id, {
-        lastContact: new Date().toISOString(),
-      });
-
-      toast.success(`Ligação de ${durationText} salva no histórico de ${currentLead.name}!`);
-    } else {
-      toast.info(`Chamada encerrada (${durationText}).`);
+      setTimeout(() => void promptAi(""), 400);
     }
-
-    // Limpa recursos WebRTC
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = null;
-    }
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-
-    if (voice.rec) voice.toggle();
-    setCallActive(false);
-    setCallStatus("idle");
-    setSec(0);
-    setNotes("");
-    setScript("");
   };
 
-  const cleanPhone = toE164(phoneNumber);
+  // Registrar resultado real da ação/chamada
+  const finishCall = async () => {
+    if (voice.rec) voice.toggle();
+
+    const phoneDisplay = parsedPhone.valid ? parsedPhone.display : phoneNumber.trim();
+    const activityText = buildCallActivityText({
+      mode: callMode,
+      status: callStatus,
+      outcome,
+      phoneDisplay,
+      sellerName,
+      notes,
+      nextContactAt,
+    });
+
+    if (currentLead) {
+      await addEvent(currentLead.id, {
+        kind: "call",
+        text: activityText,
+      });
+
+      const leadPatch: { lastContact: string; nextAction?: string } = {
+        lastContact: new Date().toISOString(),
+      };
+      if (nextContactAt.trim()) {
+        leadPatch.nextAction = nextContactAt.trim();
+      }
+      await updateLead(currentLead.id, leadPatch);
+
+      toast.success(`Registro salvo no histórico de ${currentLead.name}.`);
+    } else {
+      toast.info("Registro encerrado (nenhum lead vinculado ao número).");
+    }
+
+    setCallActive(false);
+    setCallStatus("ended");
+    setNotes("");
+    setNextContactAt("");
+    setScript("");
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
-      {/* Áudio remoto para chamadas WebRTC */}
-      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
       <PageHeader
-        title="Discador Telefônico & WhatsApp"
-        sub="Ligue diretamente para clientes via WhatsApp, Softphone ou Navegador com teleprompter de IA."
+        title="Alliar Voice · Central de Ligações"
+        sub="Ligue pelo celular (tel:), abra no WhatsApp ou escaneie o QR Code com registro manual no histórico."
       />
 
       <div className="grid gap-6 lg:grid-cols-12 items-start">
@@ -402,7 +359,7 @@ function DialerPage() {
 
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
-            <Input className="input-premium"
+            <Input
               value={searchLead}
               onChange={(e) => setSearchLead(e.target.value)}
               placeholder="Buscar por nome ou número…"
@@ -423,6 +380,7 @@ function DialerPage() {
                 return (
                   <button
                     key={l.id}
+                    type="button"
                     onClick={() => handleSelectLead(l.id)}
                     className={cn(
                       "w-full p-2.5 text-left transition-colors flex items-center justify-between hover:bg-[#F7F3EB]",
@@ -448,48 +406,82 @@ function DialerPage() {
         {/* COLUNA CENTRAL: TECLADO NUMÉRICO E CONTROLES DE CHAMADA (5 colunas) */}
         <div className="lg:col-span-5 rounded-2xl border border-[#E0D5C3] bg-[#FFFDF9] shadow-sm p-5 space-y-4">
           {/* DISPLAY DO NÚMERO */}
-          <div className="rounded-xl border border-[#DED4C5] bg-[#FBF9F5] p-3 text-center space-y-1">
+          <div className="rounded-xl border border-[#DED4C5] bg-[#FBF9F5] p-3 text-center space-y-1.5">
             <div className="text-xs text-[#7A6F62] font-medium flex items-center justify-center gap-1.5">
               {currentLead ? (
                 <>
                   <User className="size-3 text-[#C25E38]" />
                   <span>
-                    Ligando para <strong>{currentLead.name}</strong>
+                    Contato: <strong>{currentLead.name}</strong>
                     {currentLead.company ? ` (${currentLead.company})` : ""}
                   </span>
                 </>
               ) : (
-                <span>Digite qualquer número para discar</span>
+                <span>Vendedor: {sellerName} · Digite o número com DDD</span>
               )}
             </div>
 
-            <div className="flex items-center gap-2 px-1">
-              <Input className="input-premium"
+            <div className="flex items-center gap-1.5 px-1">
+              <Input
                 type="tel"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    void startCall("tel");
+                    startCall("tel");
                   }
                 }}
                 placeholder="(DDD) 90000-0000"
                 className="text-xl sm:text-2xl font-bold font-mono text-center tracking-wider text-[#2B2520] bg-white border-[#DED4C5] h-12 rounded-xl"
               />
               {phoneNumber && (
-                <button
-                  type="button"
-                  onClick={() => setPhoneNumber("")}
-                  className="p-2.5 rounded-xl text-[#7A6F62] hover:text-[#C25E38] hover:bg-stone-200 transition-colors shrink-0"
-                  title="Limpar número"
-                  aria-label="Limpar número"
-                >
-                  <Delete className="size-5" />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCopyNumber}
+                    className="p-2.5 rounded-xl text-[#7A6F62] hover:text-[#2B2520] hover:bg-stone-200 transition-colors shrink-0"
+                    title="Copiar número"
+                    aria-label="Copiar número"
+                  >
+                    <Copy className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPhoneNumber("")}
+                    className="p-2.5 rounded-xl text-[#7A6F62] hover:text-[#C25E38] hover:bg-stone-200 transition-colors shrink-0"
+                    title="Limpar número"
+                    aria-label="Limpar número"
+                  >
+                    <Delete className="size-5" />
+                  </button>
+                </>
               )}
             </div>
+
+            {phoneNumber.trim() && (
+              <div className="text-[11px]">
+                {parsedPhone.valid ? (
+                  <span className="font-mono text-emerald-700">{parsedPhone.display}</span>
+                ) : (
+                  <span className="text-amber-700">{parsedPhone.error}</span>
+                )}
+              </div>
+            )}
           </div>
+
+          {callStatus === "sip_unconfigured" && !callActive && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 flex items-start gap-2.5">
+              <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
+              <div className="space-y-1">
+                <p className="font-bold">Softphone SIP não configurado</p>
+                <p className="text-[11px] text-amber-900">
+                  Este ambiente ainda não possui servidor Asterisk/SIP conectado para ligações diretas pelo navegador.
+                  Utilize <strong>Celular (tel:)</strong>, <strong>WhatsApp</strong> ou o <strong>QR Code</strong> abaixo.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* TECLADO NUMÉRICO (DIALPAD) */}
           {!callActive && (
@@ -514,20 +506,18 @@ function DialerPage() {
             </div>
           )}
 
-          {/* BOTÕES DE DISCAGEM REAL */}
+          {/* BOTÕES DE DISCAGEM */}
           {!callActive ? (
             <div className="space-y-2 pt-2">
-              {/* BOTÃO 1: LIGAR PELO WHATSAPP */}
               <Button
                 type="button"
                 onClick={() => startCall("whatsapp")}
                 className="w-full h-11 rounded-xl bg-[#25D366] hover:bg-[#20BA5A] text-white font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
               >
-                <MessageSquare className="size-4" /> Ligar pelo WhatsApp (Voz/Áudio)
+                <MessageSquare className="size-4" /> Abrir no WhatsApp (wa.me)
               </Button>
 
               <div className="grid grid-cols-2 gap-2">
-                {/* BOTÃO 2: LIGAR PELO CELULAR / SOFTPHONE (TEL:) */}
                 <Button
                   type="button"
                   variant="outline"
@@ -537,57 +527,53 @@ function DialerPage() {
                   <Smartphone className="size-4 text-blue-600" /> Celular (tel:)
                 </Button>
 
-                {/* BOTÃO 3: CHAMADA NO NAVEGADOR */}
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => startCall("browser")}
-                  className="h-10 rounded-xl border-[#DED4C5] font-semibold text-xs flex items-center justify-center gap-1.5"
+                  className="h-10 rounded-xl border-[#DED4C5] font-semibold text-xs flex items-center justify-center gap-1.5 text-muted-foreground"
                 >
-                  <Headphones className="size-4 text-[#C25E38]" /> No Navegador
+                  <Headphones className="size-4" /> Softphone SIP
                 </Button>
               </div>
 
-              {/* TOGGLE QR CODE PARA LIGAR COM CELULAR */}
-              {cleanPhone && (
-                <div className="text-center pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowQr((v) => !v)}
-                    className="text-[11px] text-[#7A6F62] hover:text-[#2B2520] underline inline-flex items-center gap-1"
-                  >
-                    <QrCode className="size-3" />
-                    {showQr ? "Ocultar QR Code" : "Escanear QR Code para discar no celular"}
-                  </button>
-                  {showQr && (
-                    <div className="mt-3 p-3 bg-white rounded-xl border border-[#E0D5C3] inline-block shadow-xs">
-                      <QRCodeSVG value={`tel:${cleanPhone}`} size={120} />
-                      <p className="text-[10px] text-[#7A6F62] mt-1.5">
-                        Aponte a câmera do celular para discar
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* QR CODE PARA CELULAR / WHATSAPP / JITSI */}
+              <div className="text-center pt-1 space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowQr((v) => !v)}
+                  className="text-[11px] text-[#7A6F62] hover:text-[#2B2520] underline inline-flex items-center gap-1"
+                >
+                  <QrCode className="size-3" />
+                  {showQr ? "Ocultar QR Code" : "QR Code para ligar ou abrir WhatsApp no celular"}
+                </button>
+                {showQr && (
+                  <PhoneQrPanel
+                    phone={phoneNumber}
+                    leadName={currentLead?.name}
+                    compact
+                  />
+                )}
+              </div>
             </div>
           ) : (
-            /* PAINEL DE CHAMADA EM ANDAMENTO */
+            /* PAINEL DE REGISTRO MANUAL APÓS AÇÃO EXTERNA */
             <div className="rounded-2xl border-2 border-[#C25E38]/30 bg-[#FFFDF9] p-4 space-y-4 shadow-sm animate-in fade-in">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="size-3 rounded-full bg-emerald-500 animate-ping" />
-                  <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
-                    {callStatus === "dialing" ? "Chamando cliente…" : "Em chamada ativa"}
+                  <span className="size-2.5 rounded-full bg-amber-500" />
+                  <span className="text-xs font-bold text-amber-800">
+                    {getExternalActionLabel(callMode, callStatus)}
                   </span>
                 </div>
-                <div className="font-mono text-base font-bold text-[#2B2520] bg-[#EFE8DC] px-2.5 py-0.5 rounded-lg">
-                  {String(Math.floor(sec / 60)).padStart(2, "0")}:
-                  {String(sec % 60).padStart(2, "0")}
-                </div>
+                <span className="text-[11px] font-mono text-[#7A6F62]">
+                  {parsedPhone.valid ? parsedPhone.display : phoneNumber}
+                </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <Button
+                  type="button"
                   size="sm"
                   variant={voice.rec ? "destructive" : "secondary"}
                   onClick={voice.toggle}
@@ -595,17 +581,18 @@ function DialerPage() {
                 >
                   {voice.rec ? (
                     <>
-                      <MicOff className="mr-1 size-3.5" /> Parar Gravação
+                      <MicOff className="mr-1 size-3.5" /> Parar Ditado
                     </>
                   ) : (
                     <>
-                      <Mic className="mr-1 size-3.5" /> Transcrever Voz
+                      <Mic className="mr-1 size-3.5" /> Ditar Anotação
                     </>
                   )}
                 </Button>
 
                 {currentLead && (
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     onClick={() => {
@@ -619,46 +606,69 @@ function DialerPage() {
                 )}
               </div>
 
-              {/* SELETOR DE RESULTADO */}
               <div>
                 <label className="block text-[11px] font-bold text-[#554D43] mb-1">
-                  Resultado da Chamada:
+                  Resultado real da tentativa:
                 </label>
                 <select
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
                   className="w-full text-xs h-9 rounded-lg border border-[#DED4C5] bg-white px-2"
                 >
-                  <option value="Atendida - Interesse confirmado">Atendida - Interesse confirmado</option>
-                  <option value="Atendida - Retorno agendado">Atendida - Retorno agendado</option>
-                  <option value="Atendida - Sem interesse / Objeção">Atendida - Sem interesse / Objeção</option>
-                  <option value="Não atendeu / Caixa postal">Não atendeu / Caixa postal</option>
-                  <option value="Ocupado / Recusou chamada">Ocupado / Recusou chamada</option>
+                  {CALL_OUTCOMES.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* ANOTAÇÕES DA LIGAÇÃO */}
               <div>
                 <label className="block text-[11px] font-bold text-[#554D43] mb-1">
-                  Anotações da Conversa:
+                  Observações da conversa:
                 </label>
                 <Textarea
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Anote detalhes tratados na ligação (ex.: achou a proposta boa, reunião amanhã)..."
+                  placeholder="Anote detalhes tratados com o cliente..."
                   className="text-xs bg-[#FBF9F5] border-[#DED4C5]"
                 />
               </div>
 
-              {/* BOTÃO ENCERRAMENTO E PERSISTÊNCIA */}
-              <Button
-                type="button"
-                onClick={finishCall}
-                className="w-full h-11 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-              >
-                <PhoneOff className="size-4" /> Encerrar e Salvar no Histórico
-              </Button>
+              <div>
+                <label className="block text-[11px] font-bold text-[#554D43] mb-1 flex items-center gap-1">
+                  <Calendar className="size-3" /> Próximo contato (opcional):
+                </label>
+                <Input
+                  type="text"
+                  value={nextContactAt}
+                  onChange={(e) => setNextContactAt(e.target.value)}
+                  placeholder="Ex: Amanhã às 14h - enviar proposta"
+                  className="text-xs h-8 bg-[#FBF9F5] border-[#DED4C5]"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setCallActive(false);
+                    setCallStatus("idle");
+                  }}
+                  className="h-11 rounded-xl border-[#DED4C5]"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={finishCall}
+                  className="flex-1 h-11 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <PhoneOff className="size-4" /> Registrar no Histórico
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -673,15 +683,19 @@ function DialerPage() {
           </div>
 
           <p className="text-[11px] text-[#7A6F62] leading-relaxed">
-            Dicas perspicazes e roteiro de negociação gerados em tempo real com base no perfil do cliente.
+            Dicas perspicazes e roteiro de negociação gerados com base no perfil do cliente.
           </p>
 
           <div className="min-h-36 rounded-xl border border-[#E0D5C3] bg-[#F7F3EB] p-3 text-xs text-[#2B2520] leading-relaxed whitespace-pre-wrap">
-            {script || (busy ? "Consultando inteligência comercial…" : "Selecione um cliente e inicie a chamada para receber o roteiro em tempo real.")}
+            {script ||
+              (busy
+                ? "Consultando inteligência comercial…"
+                : "Selecione um cliente e inicie a chamada para receber o roteiro em tempo real.")}
           </div>
 
           {currentLead && (
             <Button
+              type="button"
               size="sm"
               variant="outline"
               onClick={() => promptAi()}

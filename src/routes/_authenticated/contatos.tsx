@@ -1,7 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Pencil, Trash2, Plus, FileText, Calendar, StickyNote, Clock } from 'lucide-react';
+import { Pencil, Trash2, Plus, FileText, Calendar, StickyNote, Clock, Phone } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useApp } from '@/lib/store';
@@ -139,6 +139,19 @@ function Contacts() {
                       <td className="py-3.5 px-4 text-muted-foreground">{c.email || '—'}</td>
                       <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
+                          {c.phone && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild
+                              className="h-8 gap-1 text-xs"
+                              title="Abrir no Alliar Voice (Discador)"
+                            >
+                              <Link to="/dialer" search={{ phone: c.phone } as never}>
+                                <Phone className="size-3.5 text-[#C25E38]" /> Ligar
+                              </Link>
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"

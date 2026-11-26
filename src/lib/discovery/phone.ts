@@ -71,7 +71,7 @@ export function mergePhones(entries: { raw: string; source: SourceName }[]): Pho
 
 /** Extrai telefones de texto livre (rodapé/contato). */
 export function extractPhonesFromText(text: string): string[] {
-  const re = /(?:\+?55\s?)?\(?\b0?([1-9]{2})\)?[\s.-]?(9?\d{4})[\s.-]?(\d{4})\b/g;
+  const re = /(?:\+?55\s?)?\(?0?([1-9]{2})\)?[\s.-]?(9?\d{4})[\s.-]?(\d{4})\b/g;
   const out = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {

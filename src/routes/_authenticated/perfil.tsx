@@ -27,6 +27,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
+import { toE164 } from "@/lib/whatsapp";
 import { seo } from "@/lib/seo";
 import { brl } from "@/lib/pix";
 import { Button } from "@/components/ui/button";
@@ -167,9 +168,10 @@ function ProfilePage() {
 
   // Link público do cartão de visitas
   const digitalCardUrl = useMemo(() => {
-    const cleanPhone = phone.replace(/\D/g, "");
-    if (cleanPhone) return `https://wa.me/55${cleanPhone}`;
-    return window.location.origin;
+    const cleanPhone = toE164(phone);
+    if (cleanPhone && cleanPhone.length >= 12) return `https://wa.me/${cleanPhone}`;
+    if (typeof window !== "undefined") return window.location.origin;
+    return "https://alliar.com.br";
   }, [phone]);
 
   return (

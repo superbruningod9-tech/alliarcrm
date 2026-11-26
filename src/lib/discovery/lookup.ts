@@ -1,6 +1,22 @@
 import type { BBox, RawRecord } from "./types";
-import { initialCells, runQuadtree, type Cell } from "./quadtree";
+import { runQuadtree, type Cell } from "./quadtree";
 import { searchOverpass, searchNominatim } from "./osm";
+import { extractFromHtml, isSafePublicUrl } from "./crawler";
+import { normalizeBrPhone } from "./phone";
+
+/**
+ * Normaliza telefone brasileiro removendo DDI 55 quando aplicável e preservando DDD + número.
+ * Reutiliza normalizeBrPhone de ./phone para evitar duplicação de regras de DDD/E.164.
+ */
+function normalizeNationalPhone(raw: string): string {
+  const br = normalizeBrPhone(raw);
+  if (br) return br.e164.replace(/^\+55/, "");
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    return digits.slice(2);
+  }
+  return raw.replace(/[^\d+]/g, "");
+}
 
 
 export interface GooglePlacesNewOptions {
@@ -87,7 +103,9 @@ export async function searchGooglePlacesNew(
         if (!name) continue;
 
         const rawPhones = [p.nationalPhoneNumber, p.internationalPhoneNumber].filter(Boolean) as string[];
-        const phones = rawPhones.map((ph) => ph.replace(/[^\d+]/g, "").slice(0, 16)).filter((ph) => ph.length >= 8);
+        const phones = Array.from(
+          new Set(rawPhones.map((ph) => normalizeNationalPhone(ph).slice(0, 16)).filter((ph) => ph.length >= 8))
+        );
 
         records.push({
           source: "google_maps",
@@ -136,7 +154,7 @@ export async function searchGooglePlacesNew(
       lng: item.geometry?.location?.lng,
       rating: item.rating,
       reviewsCount: item.user_ratings_total,
-      phones: item.formatted_phone_number ? [item.formatted_phone_number.replace(/[^\d+]/g, "")] : [],
+      phones: item.formatted_phone_number ? [normalizeNationalPhone(item.formatted_phone_number)] : [],
     }));
   } catch (err) {
     console.warn("[GooglePlacesLegacy] Falha:", err instanceof Error ? err.message : err);
@@ -168,24 +186,57 @@ export async function searchGooglePlacesMultiQuadrant(
   let realInitialQueue: Cell[] | undefined = Array.isArray(initialQueue) ? initialQueue : undefined;
   let realFetch = typeof initialQueue === "function" ? initialQueue : fetchImpl;
 
-  // If no API key provided, fallback to OSM Overpass & Nominatim search rather than returning empty.
+  // Sem chave Google: executa cascata complementar (Overpass + Nominatim) tratando falhas isoladamente.
   if (!apiKey || !apiKey.trim()) {
-    const overpassResults = await searchOverpass(bbox, [], keywords, realFetch);
-    if (overpassResults.length > 0) {
-      const result: SearchGooglePlacesResult = Object.assign(overpassResults, {
-        pendingCells: [],
-        completedCellIds: [],
-        cellsSearched: 1,
-        truncated: false,
-      });
-      return result;
+    const combined: RawRecord[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (records: RawRecord[]) => {
+      for (const r of records) {
+        const key = r.sourceId || `${r.name.toLowerCase()}_${r.lat?.toFixed(3) ?? ""}_${r.lng?.toFixed(3) ?? ""}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push(r);
+        }
+      }
+    };
+
+    const runSource = async (label: string, fn: () => Promise<RawRecord[]>): Promise<void> => {
+      try {
+        const items = await fn();
+        if (items.length === 0) {
+          console.info(`[DiscoveryCascade] ${label}: resultado vazio`);
+        } else if (items.length < maxItems) {
+          console.info(`[DiscoveryCascade] ${label}: resultado parcial (${items.length})`);
+          pushUnique(items);
+        } else {
+          pushUnique(items);
+        }
+      } catch (err: any) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (err?.name === "AbortError" || /timeout|aborted/i.test(msg)) {
+          console.warn(`[DiscoveryCascade] ${label}: timeout (${msg})`);
+        } else if (err?.status === 429 || /\b429\b|rate.?limit/i.test(msg)) {
+          console.warn(`[DiscoveryCascade] ${label}: HTTP 429 rate limit (${msg})`);
+        } else {
+          console.warn(`[DiscoveryCascade] ${label}: erro de rede/execução (${msg})`);
+        }
+      }
+    };
+
+    await runSource("Overpass", () => searchOverpass(bbox, [], keywords, realFetch));
+
+    // Mesmo quando Overpass retorna resultados parciais, complementa com Nominatim até maxItems
+    if (combined.length < maxItems && keywords.length > 0) {
+      await runSource("Nominatim", () => searchNominatim(keywords.join(" "), city, bbox, Math.min(100, maxItems), realFetch));
     }
-    const nomResults = await searchNominatim(keywords.join(' '), city, bbox, 100, realFetch);
-    const result: SearchGooglePlacesResult = Object.assign(nomResults, {
+
+    const items = combined.slice(0, maxItems);
+    const result: SearchGooglePlacesResult = Object.assign(items, {
       pendingCells: [],
       completedCellIds: [],
       cellsSearched: 1,
-      truncated: false,
+      truncated: combined.length > maxItems,
     });
     return result;
   }
@@ -198,134 +249,15 @@ export async function searchGooglePlacesMultiQuadrant(
       const cellResults: RawRecord[] = [];
       for (const kw of primaryKeywords) {
         const query = `${kw} em ${city} Brasil`;
-        const places = await searchGooglePlacesNew(
-          { query, apiKey, bbox: cell, pageSize: 20, maxPages: 2 },
-          realFetch
-        );
+        const places = await searchGooglePlacesNew({ query, apiKey, bbox: cell, pageSize: 20, maxPages: 2 }, realFetch);
         cellResults.push(...places);
         if (cellResults.length >= 35) break;
       }
       return { count: cellResults.length, items: cellResults };
     },
-    (p) => p.sourceId || `${p.name}_${p.lat?.toFixed(3)}_${p.lng?.toFixed(3)}`,
-    undefined,
-    maxItems
-  );
-
-  return quadRes as unknown as SearchGooglePlacesResult;
-}
-(
-  bbox: BBox,
-  keywords: string[],
-  city: string,
-  apiKey: string,
-  maxItems = 300,
-  initialQueue?: Cell[] | typeof fetch,
-  completedCellIds?: string[],
-  fetchImpl: typeof fetch = fetch
-): Promise<SearchGooglePlacesResult> {
-  let realInitialQueue: Cell[] | undefined = Array.isArray(initialQueue) ? initialQueue : undefined;
-  let realFetch = typeof initialQueue === "function" ? initialQueue : fetchImpl;
-
-  // If no API key provided, fallback to OSM Overpass & Nominatim search rather than returning empty.
-  if (!apiKey || !apiKey.trim()) {
-    // Combine keywords to a generic OSM query (name search) limited by bbox.
-    // Use searchOverpass as primary source; if it returns nothing, try Nominatim.
-    const overpassResults = await searchOverpass(bbox, [], keywords, realFetch);
-    if (overpassResults.length > 0) {
-      const result: SearchGooglePlacesResult = Object.assign(overpassResults, {
-        pendingCells: [],
-        completedCellIds: [],
-        cellsSearched: 1,
-        truncated: false,
-      });
-      return result;
-    }
-    // Fallback to Nominatim name search (limited to 100 results).
-    const nomResults = await searchNominatim(keywords.join(' '), city, bbox, 100, realFetch);
-    const result: SearchGooglePlacesResult = Object.assign(nomResults, {
-      pendingCells: [],
-      completedCellIds: [],
-      cellsSearched: 1,
-      truncated: false,
-    });
-    return result;
-  }
-
-  const primaryKeywords = keywords.slice(0, 3);
-
-  const quadRes = await runQuadtree<RawRecord>(
-    bbox,
-    async (cell) => {
-      const cellResults: RawRecord[] = [];
-      for (const kw of primaryKeywords) {
-        const query = `${kw} em ${city} Brasil`;
-        const places = await searchGooglePlacesNew(
-          { query, apiKey, bbox: cell, pageSize: 20, maxPages: 2 },
-          realFetch
-        );
-        cellResults.push(...places);
-        if (cellResults.length >= 35) break;
-      }
-      return {
-        count: cellResults.length,
-        items: cellResults,
-      };
-    },
-    (p) => p.sourceId || `${p.name}_${p.lat?.toFixed(3)}_${p.lng?.toFixed(3)}`,
-    undefined,
-    maxItems
-  );
-
-  // The original implementation returned the raw quadRes structure. Keep compatibility.
-  return quadRes as unknown as SearchGooglePlacesResult;
-}
-(
-  bbox: BBox,
-  keywords: string[],
-  city: string,
-  apiKey: string,
-  maxItems = 300,
-  initialQueue?: Cell[] | typeof fetch,
-  completedCellIds?: string[],
-  fetchImpl: typeof fetch = fetch
-): Promise<SearchGooglePlacesResult> {
-  let realInitialQueue: Cell[] | undefined = Array.isArray(initialQueue) ? initialQueue : undefined;
-  let realFetch = typeof initialQueue === "function" ? initialQueue : fetchImpl;
-
-  if (!apiKey || !apiKey.trim()) {
-    const empty: SearchGooglePlacesResult = Object.assign([], {
-      pendingCells: [],
-      completedCellIds: [],
-      cellsSearched: 0,
-      truncated: false,
-    });
-    return empty;
-  }
-
-  const primaryKeywords = keywords.slice(0, 3);
-
-  const quadRes = await runQuadtree<RawRecord>(
-    bbox,
-    async (cell) => {
-      const cellResults: RawRecord[] = [];
-      for (const kw of primaryKeywords) {
-        const query = `${kw} em ${city} Brasil`;
-        const places = await searchGooglePlacesNew(
-          { query, apiKey, bbox: cell, pageSize: 20, maxPages: 2 },
-          realFetch
-        );
-        cellResults.push(...places);
-        if (cellResults.length >= 35) break;
-      }
-      return {
-        count: cellResults.length,
-        items: cellResults,
-      };
-    },
-    (p) => p.sourceId || `${p.name}_${p.lat?.toFixed(3)}_${p.lng?.toFixed(3)}`,
+    (p) => p.sourceId || `${p.name}_${p?.lat?.toFixed(3)}_${p?.lng?.toFixed(3)}`,
     {
-      saturation: 30, // 30+ empresas no quadrante indica saturação: subdivide!
+      saturation: 30,
       maxDepth: 4,
       maxCells: 16,
       initialGrid: 2,
@@ -342,7 +274,6 @@ export async function searchGooglePlacesMultiQuadrant(
     cellsSearched: quadRes.stats.cellsSearched,
     truncated: quadRes.stats.truncated,
   });
-
   return result;
 }
 
@@ -390,7 +321,9 @@ export async function discoverWebPresence(
         for (const item of items) {
           const extra = item.extratags || {};
           const phone = extra.phone || extra["contact:phone"] || extra["contact:mobile"];
-          if (phone) out.phones.push(phone.replace(/[^\d+]/g, ""));
+          if (phone) {
+            out.phones.push(normalizeNationalPhone(phone));
+          }
 
           const wa = extra["contact:whatsapp"];
           if (wa && !out.whatsapp) out.whatsapp = wa.replace(/[^\d+]/g, "");
@@ -431,7 +364,7 @@ export async function discoverWebPresence(
     } catch {}
   }
 
-  // Deduplicação dos telefones
-  out.phones = Array.from(new Set(out.phones.map((p) => p.replace(/[^\d+]/g, "")).filter((p) => p.length >= 8)));
+  // Normalização uniforme e deduplicação dos telefones (HTML, Nominatim e demais fontes)
+  out.phones = Array.from(new Set(out.phones.map((p) => normalizeNationalPhone(p)).filter((p) => p.length >= 8)));
   return out;
 }

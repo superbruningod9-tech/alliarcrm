@@ -120,6 +120,22 @@ const NICHES: { match: string[]; profile: NicheProfile }[] = [
     },
   },
   {
+    match: ["laboratorio", "analises clinicas", "laboratorio clinico", "exames laboratoriais"],
+    profile: {
+      label: "Laboratório de análises clínicas",
+      synonyms: [
+        "laboratório de análises clínicas",
+        "laboratório",
+        "análises clínicas",
+        "laboratório clínico",
+        "exames laboratoriais",
+      ],
+      relatedCategories: ["diagnóstico por imagem", "posto de coleta laboratorial"],
+      cnaes: ["8640-2/02", "8640-2/01"],
+      osm: ["healthcare=laboratory", "amenity=laboratory"],
+    },
+  },
+  {
     match: ["clinica medica", "medico", "clinica", "consultorio", "saude", "policlinica"],
     profile: {
       label: "Clínica médica",
@@ -243,14 +259,35 @@ const NICHES: { match: string[]; profile: NicheProfile }[] = [
   },
 ];
 
+/** Extrai termos nucleares relevantes de expressões longas sem substituir a consulta original. */
+function extractNuclearTerms(term: string): string[] {
+  const stop = new Set(["de", "da", "do", "das", "dos", "e", "em", "para", "com", "a", "o", "as", "os"]);
+  const words = term
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !stop.has(w));
+  if (words.length <= 1) return [];
+
+  const out: string[] = [];
+  // Primeiro substantivo nuclear (ex: "laboratórios" -> "laboratório")
+  const firstSingular = generateMorphologicalVariations(words[0]!)[1] || words[0]!;
+  if (firstSingular.length >= 5) out.push(firstSingular);
+  if (words.length >= 2) {
+    out.push(`${words[words.length - 2]} ${words[words.length - 1]}`);
+  }
+  return Array.from(new Set(out));
+}
+
 /** Gera variações semânticas e seletores OSM para um nicho digitado pelo usuário. */
 export function expandNiche(term: string): NicheProfile {
   const t = strip(term);
   const morph = generateMorphologicalVariations(term);
+  const nuclear = extractNuclearTerms(term);
 
   for (const n of NICHES) {
     if (n.match.some((m) => t.includes(strip(m)) || strip(m).includes(t)) && t.length >= 3) {
-      const syn = Array.from(new Set([term.trim(), ...morph, ...n.profile.synonyms]));
+      const syn = Array.from(new Set([term.trim(), ...nuclear, ...n.profile.synonyms, ...morph]));
       return {
         ...n.profile,
         synonyms: syn,
@@ -288,7 +325,7 @@ export function expandNiche(term: string): NicheProfile {
 
   return {
     label: term.trim(),
-    synonyms: Array.from(new Set([term.trim(), ...morph])),
+    synonyms: Array.from(new Set([term.trim(), ...nuclear, ...morph])),
     relatedCategories: derivedRelated,
     cnaes: derivedCnaes,
     osm: derivedOsm,

@@ -86,43 +86,53 @@ export async function searchOverpass(
   const query = buildOverpassQuery(b, selectors, keywords);
   const body = "data=" + encodeURIComponent(query);
 
-  const maxAttempts = 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    for (const url of ENDPOINTS) {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 6500);
-      try {
-        const r = await fetchImpl(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "AlliarCRM-B2B/1.0 (https://alliar.com.br; dev@alliar.com.br)",
-            "Referer": "https://alliar.com.br",
-            "Accept": "application/json",
-          },
-          body,
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-        if (r.ok) {
-          const json = await r.json();
-          const records = parseOverpass(json);
-          if (records.length > 0) return records;
-        } else if (r.status === 429) {
-          // Rate‑limit – backoff and retry
-          const delay = Math.pow(2, attempt) * 500; // 500ms, 1s, 2s
-          await new Promise((res) => setTimeout(res, delay));
+  let hadTransportOrHttpError = false;
+  for (let i = 0; i < ENDPOINTS.length; i++) {
+    const url = ENDPOINTS[i]!;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4500);
+    try {
+      const r = await fetchImpl(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "AlliarCRM-B2B/1.0 (https://alliar.com.br; dev@alliar.com.br)",
+          "Referer": "https://alliar.com.br",
+          "Accept": "application/json",
+        },
+        body,
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+
+      if (r.ok) {
+        const json = await r.json().catch(() => null);
+        if (json && Array.isArray(json.elements)) {
+          // Resposta válida do Overpass (inclusive 0 elementos): não percorre outros endpoints.
+          return parseOverpass(json);
         }
-      } catch (e) {
-        clearTimeout(timer);
-        // Network / abort – retry with backoff
-        const delay = Math.pow(2, attempt) * 500;
-        await new Promise((res) => setTimeout(res, delay));
+        hadTransportOrHttpError = true;
+      } else if (r.status === 429) {
+        hadTransportOrHttpError = true;
+        console.warn(`[Overpass] HTTP 429 em ${url}, tentando próximo servidor.`);
+        if (i < ENDPOINTS.length - 1) {
+          await new Promise((res) => setTimeout(res, 250));
+        }
+      } else {
+        hadTransportOrHttpError = true;
+        console.warn(`[Overpass] HTTP ${r.status} em ${url}, tentando próximo servidor.`);
       }
+    } catch (e: any) {
+      clearTimeout(timer);
+      hadTransportOrHttpError = true;
+      const isTimeout = e?.name === "AbortError";
+      console.warn(`[Overpass] ${isTimeout ? "Timeout" : "Erro de rede"} em ${url}, tentando próximo servidor.`);
     }
   }
-  // All attempts exhausted – return empty and let caller log.
-  console.warn("[Overpass] Todas as tentativas falharam ou nenhum resultado encontrado.");
+
+  if (hadTransportOrHttpError) {
+    console.warn("[Overpass] Todos os servidores falharam ou expiraram.");
+  }
   return [];
 }
 
@@ -290,7 +300,13 @@ export async function searchAllOSM(
 ): Promise<SearchOSMResult> {
   const realInitialQueue = Array.isArray(initialQueue) ? initialQueue : undefined;
   const realFetch = typeof initialQueue === "function" ? initialQueue : fetchImpl;
-  const termsToSearch = keywords.slice(0, 4);
+  const seenStems = new Set<string>();
+  const termsToSearch = keywords.filter((kw) => {
+    const stem = kw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s\b/g, "").trim();
+    if (!stem || seenStems.has(stem)) return false;
+    seenStems.add(stem);
+    return true;
+  }).slice(0, 4);
 
   // Executa busca via runQuadtree particionando células saturadas
   const quadtreeRes = await runQuadtree<RawRecord>(
@@ -305,7 +321,7 @@ export async function searchAllOSM(
 
       // 2. Nominatim no viewbox restrito da célula se tiver capacidade
       if (cellItems.length < 50 && termsToSearch.length > 0) {
-        for (const term of termsToSearch.slice(0, 2)) {
+        for (const term of termsToSearch.slice(0, 3)) {
           try {
             const nom = await searchNominatim(term, city, cell, 50, realFetch);
             cellItems.push(...nom);

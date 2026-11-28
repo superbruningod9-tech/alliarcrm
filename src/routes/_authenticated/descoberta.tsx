@@ -64,6 +64,7 @@ export function DiscoveryPage() {
   const [enrichProgress, setEnrichProgress] = useState("");
   const [enrichStats, setEnrichStats] = useState<{ cnpjs: number; whatsapps: number; sites: number } | null>(null);
   const [updatingSearch, setUpdatingSearch] = useState(false);
+  const [enrichingKeys, setEnrichingKeys] = useState<Set<string>>(new Set());
   const [updateReport, setUpdateReport] = useState<UpdateReport | null>(null);
   const [lastUpdatedDate, setLastUpdatedDate] = useState<string | null>(null);
   const [updateFilter, setUpdateFilter] = useState<
@@ -378,31 +379,76 @@ export function DiscoveryPage() {
 
   /** Reenriquece sob demanda um único lead da lista */
   async function runSingleLeadEnrich(lead: MasterLead) {
+    if (enrichingKeys.has(lead.key)) return;
+    setEnrichingKeys((prev) => new Set(prev).add(lead.key));
+    toast.info(`Atualizando ficha de ${lead.name}...`);
     try {
-      toast.info(`Atualizando ficha de ${lead.name}...`);
       const res = await enrichLeadSingle({
         data: {
           key: lead.key,
           name: lead.name,
-          website: lead.website,
-          cnpj: lead.cnpj,
-          city: lead.city || city,
-          state: lead.state,
-          address: lead.address,
-          cep: lead.cep,
+          website: lead.website || undefined,
+          cnpj: lead.cnpj || undefined,
+          city: lead.city || city || undefined,
+          state: lead.state || undefined,
+          address: lead.address || undefined,
+          cep: lead.cep || undefined,
           forceRefresh: true,
+          lead: lead as any,
         },
       });
 
-      if (res.lead) {
+      if (res?.error) {
+        toast.warning(`Aviso para ${lead.name}: ${res.error}`);
+      }
+
+      if (res?.lead) {
+        const updated = res.lead as MasterLead;
         setLeads((prev) =>
-          prev.map((l) => (l.key === lead.key ? (res.lead as MasterLead) : l))
+          prev.map((l) => {
+            if (l.key !== lead.key) return l;
+            return {
+              ...l,
+              ...updated,
+              categories: updated.categories?.length ? updated.categories : (l.categories || []),
+              category: updated.category || l.category || updated.categories?.[0] || l.categories?.[0] || "Comércio/Serviço",
+              phones: updated.phones?.length ? updated.phones : (l.phones || []),
+              emails: updated.emails?.length ? updated.emails : (l.emails || []),
+              socials: { ...(l.socials || {}), ...(updated.socials || {}) },
+              displayName: l.displayName || updated.displayName || l.name,
+              brandName: updated.brandName || l.brandName,
+              unitName: updated.unitName || l.unitName,
+              lat: updated.lat ?? l.lat,
+              lng: updated.lng ?? l.lng,
+              rating: updated.rating ?? l.rating,
+              reviewsCount: updated.reviewsCount ?? l.reviewsCount,
+              photosCount: updated.photosCount ?? l.photosCount,
+              relevanceScore: updated.relevanceScore ?? l.relevanceScore ?? 80,
+              commercialScore: updated.commercialScore ?? l.commercialScore ?? 75,
+              relevanceReasons: updated.relevanceReasons || l.relevanceReasons || [],
+              serviceOpportunities: updated.serviceOpportunities || l.serviceOpportunities || [],
+              commercialReasons: updated.commercialReasons || l.commercialReasons || [],
+              completeness: updated.completeness || l.completeness,
+              qualityStatus: updated.qualityStatus || l.qualityStatus,
+              lastEnrichedAt: new Date().toISOString(),
+              lastVerifiedAt: new Date().toISOString(),
+              updateStatus: "atualizada" as const,
+            };
+          })
         );
-        toast.success(`Ficha de ${lead.name} atualizada com dados mais recentes!`);
+        if (!res.error) {
+          toast.success(`Ficha de ${lead.name} atualizada com dados mais recentes!`);
+        }
       }
     } catch (err) {
-      console.error(err);
-      toast.error(`Falha ao enriquecer ${lead.name}.`);
+      console.error("[runSingleLeadEnrich] Erro:", err);
+      toast.error(`Falha ao enriquecer ${lead.name}. A página continua operando.`);
+    } finally {
+      setEnrichingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(lead.key);
+        return next;
+      });
     }
   }
 
@@ -1149,7 +1195,7 @@ export function DiscoveryPage() {
 
           <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
             {displayedLeads.map((l) => {
-              const mainPhone = l.phones.find((p) => p.whatsappLikely) ?? l.phones[0];
+              const mainPhone = l.phones?.find((p) => p.whatsappLikely) ?? l.phones?.[0];
               const phoneDigits = (mainPhone?.e164 || "").replace(/\D/g, "");
               const isSelected = sel.has(l.key);
 
@@ -1225,7 +1271,7 @@ export function DiscoveryPage() {
                           </div>
                         </div>
                         <p className="truncate text-xs text-muted-foreground mt-1">
-                          {l.category ?? l.categories[0] ?? "Comércio/Serviço"}
+                          {l.category ?? l.categories?.[0] ?? "Comércio/Serviço"}
                           {l.neighborhood ? ` · Bairro ${l.neighborhood}` : ""}
                           {l.city ? ` · ${l.city}` : ""}
                           {l.address && !l.neighborhood ? ` · ${l.address}` : ""}
@@ -1342,11 +1388,11 @@ export function DiscoveryPage() {
                           </a>
                         </div>
                       )}
-                      {!l.contactChannels && l.emails[0] && (
+                      {!l.contactChannels && l.emails?.[0] && (
                         <div className="flex items-center gap-1.5 truncate">
                           <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <a href={`mailto:${l.emails[0].value}`} className="truncate hover:underline text-muted-foreground">
-                            {l.emails[0].value}
+                          <a href={`mailto:${l.emails[0]?.value}`} className="truncate hover:underline text-muted-foreground">
+                            {l.emails[0]?.value}
                           </a>
                         </div>
                       )}
@@ -1495,12 +1541,17 @@ export function DiscoveryPage() {
                       </button>
                       <button
                         type="button"
+                        disabled={enrichingKeys.has(l.key)}
                         onClick={() => runSingleLeadEnrich(l)}
-                        className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
+                        className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer disabled:opacity-50"
                         title="Reenriquecer dados cadastrais via BrasilAPI / IA"
                       >
-                        <Zap className="h-3 w-3 text-amber-500" />
-                        Reenriquecer
+                        {enrichingKeys.has(l.key) ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
+                        ) : (
+                          <Zap className="h-3 w-3 text-amber-500" />
+                        )}
+                        {enrichingKeys.has(l.key) ? "Reenriquecendo…" : "Reenriquecer"}
                       </button>
                     </div>
                   </div>
@@ -1529,7 +1580,7 @@ export function DiscoveryPage() {
                             <span>Divergência detectada com dados existentes:</span>
                           </div>
                           <div className="space-y-1 text-[11px]">
-                            {l.conflicts.map((c, i) => (
+                            {l.conflicts?.map((c, i) => (
                               <div key={i} className="rounded bg-background/80 p-1.5 border border-amber-300 dark:border-amber-800 text-[10.5px]">
                                 <div className="font-semibold text-foreground">Campo: {c.field}</div>
                                 <div className="text-muted-foreground">Valor mantido: <strong className="text-foreground">{String(c.currentValue)}</strong></div>
@@ -1551,25 +1602,27 @@ export function DiscoveryPage() {
                             </span>
                             <span className="font-extrabold text-primary">{l.completeness.overallScore}%</span>
                           </div>
-                          <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
-                            <div className="p-1 rounded bg-background border">
-                              <span className="text-muted-foreground block font-medium">Identificação:</span>
-                              <span className="font-bold capitalize">{l.completeness.sections.identification.status} ({l.completeness.sections.identification.score}%)</span>
+                          {l.completeness.sections && (
+                            <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+                              <div className="p-1 rounded bg-background border">
+                                <span className="text-muted-foreground block font-medium">Identificação:</span>
+                                <span className="font-bold capitalize">{l.completeness.sections.identification?.status} ({l.completeness.sections.identification?.score}%)</span>
+                              </div>
+                              <div className="p-1 rounded bg-background border">
+                                <span className="text-muted-foreground block font-medium">Cadastro Fiscal:</span>
+                                <span className="font-bold capitalize">{l.completeness.sections.fiscal?.status} ({l.completeness.sections.fiscal?.score}%)</span>
+                              </div>
+                              <div className="p-1 rounded bg-background border">
+                                <span className="text-muted-foreground block font-medium">Contatos:</span>
+                                <span className="font-bold capitalize">{l.completeness.sections.contact?.status} ({l.completeness.sections.contact?.score}%)</span>
+                              </div>
+                              <div className="p-1 rounded bg-background border">
+                                <span className="text-muted-foreground block font-medium">Presença Digital:</span>
+                                <span className="font-bold capitalize">{l.completeness.sections.digital?.status} ({l.completeness.sections.digital?.score}%)</span>
+                              </div>
                             </div>
-                            <div className="p-1 rounded bg-background border">
-                              <span className="text-muted-foreground block font-medium">Cadastro Fiscal:</span>
-                              <span className="font-bold capitalize">{l.completeness.sections.fiscal.status} ({l.completeness.sections.fiscal.score}%)</span>
-                            </div>
-                            <div className="p-1 rounded bg-background border">
-                              <span className="text-muted-foreground block font-medium">Contatos:</span>
-                              <span className="font-bold capitalize">{l.completeness.sections.contact.status} ({l.completeness.sections.contact.score}%)</span>
-                            </div>
-                            <div className="p-1 rounded bg-background border">
-                              <span className="text-muted-foreground block font-medium">Presença Digital:</span>
-                              <span className="font-bold capitalize">{l.completeness.sections.digital.status} ({l.completeness.sections.digital.score}%)</span>
-                            </div>
-                          </div>
-                          {l.completeness.missingFields.length > 0 && (
+                          )}
+                          {l.completeness.missingFields && l.completeness.missingFields.length > 0 && (
                             <div className="text-[10px] text-amber-700 dark:text-amber-300 pt-0.5 leading-tight">
                               <strong>Campos não obtidos em fontes públicas:</strong> {l.completeness.missingFields.join(", ")}
                             </div>

@@ -8,6 +8,7 @@ import {
   searchGooglePlacesMultiQuadrant, discoverWebPresence, calculateLeadScores,
   enrichSingleLead, enrichLeadsBatch, calculateCompleteness, buildContactChannels, buildFieldProvenance,
   smartMergeLeads, refreshSingleLeadData, mergeSingleLeadUpdate,
+  dedupeLeads,
 } from "./discovery";
 import { lookupCnpjBatch } from "./discovery/receita";
 import { searchAllOSM, searchNominatim, getAdministrativeBoundary, type AdminBoundary } from "./discovery/osm";
@@ -370,10 +371,13 @@ export const discoverArea = createServerFn({ method: "POST" })
       (r) => !poly || r.lat == null || r.lng == null || pointInPolygon({ lat: r.lat, lng: r.lng }, poly)
     );
 
+    // mergeRecords funde registros de mesma fonte; dedupeLeads consolida entre fontes diferentes
     const merged = mergeRecords(allRaw);
-    let leads = merged.map((l) =>
+    const scoredMerged = merged.map((l) =>
       calculateLeadScores(l, keywords, niche.relatedCategories || [], niche.cnaes || [])
     );
+    // Deduplicação inteligente: funde leads do mesmo negócio encontrados em OSM, Google Places e Receita
+    let leads = dedupeLeads(scoredMerged);
 
     // Enriquecimento estruturado inicial ou cálculo de completude para todos os leads encontrados
     if (data.enrich && leads.length > 0) {
@@ -504,48 +508,29 @@ export const discoverBulk = createServerFn({ method: "POST" })
 const enrichSingleInput = z.object({
   key: z.string(),
   name: z.string(),
-  website: z.string().optional(),
-  cnpj: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  address: z.string().optional(),
-  cep: z.string().optional(),
+  website: z.string().nullish(),
+  cnpj: z.string().nullish(),
+  city: z.string().nullish(),
+  state: z.string().nullish(),
+  address: z.string().nullish(),
+  cep: z.string().nullish(),
   forceRefresh: z.boolean().optional(),
+  lead: z.any().optional(),
 });
 
 export const enrichLeadSingle = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => enrichSingleInput.parse(input))
   .handler(async ({ context, data }) => {
-    let resolvedGoogleKey =
-      process.env.GOOGLE_PLACES_API_KEY ||
-      process.env.VITE_GOOGLE_PLACES_API_KEY ||
-      process.env.GOOGLE_MAPS_API_KEY ||
-      "";
-
-    if (!resolvedGoogleKey && context?.supabase && context?.userId) {
-      try {
-        const { data: conn } = await (context.supabase as any)
-          .from("b2b_connections")
-          .select("key_ciphertext")
-          .eq("user_id", context.userId)
-          .eq("provider", "google_places")
-          .maybeSingle();
-        if (conn?.key_ciphertext) {
-          resolvedGoogleKey = safeDecryptKey(conn.key_ciphertext);
-        }
-      } catch {}
-    }
-
-    const leadMock: MasterLead = {
+    const baseLead: MasterLead = (data.lead as MasterLead) ?? {
       key: data.key,
       name: data.name,
-      website: data.website,
-      cnpj: data.cnpj,
-      city: data.city,
-      state: data.state,
-      address: data.address,
-      cep: data.cep,
+      website: data.website || undefined,
+      cnpj: data.cnpj || undefined,
+      city: data.city || undefined,
+      state: data.state || undefined,
+      address: data.address || undefined,
+      cep: data.cep || undefined,
       sources: ["site"],
       fieldSources: {},
       phones: [],
@@ -554,26 +539,75 @@ export const enrichLeadSingle = createServerFn({ method: "POST" })
       triggers: [],
     };
 
-    const enriched = await enrichSingleLead(leadMock, {
-      forceRefresh: data.forceRefresh,
-      googleKey: resolvedGoogleKey,
-    });
+    try {
+      let resolvedGoogleKey =
+        process.env.GOOGLE_PLACES_API_KEY ||
+        process.env.VITE_GOOGLE_PLACES_API_KEY ||
+        process.env.GOOGLE_MAPS_API_KEY ||
+        "";
 
-    return {
-      lead: enriched,
-      fiscal: enriched.fiscal,
-      siteDiagnosis: enriched.siteDiagnosis,
-      phones: enriched.phones.map((p) => p.e164 || p.raw),
-      whatsapp: enriched.phones.find((p) => p.whatsappLikely)?.e164 || enriched.contactChannels?.whatsapp || null,
-      email: enriched.emails[0]?.value || enriched.contactChannels?.commercialEmail || null,
-      socials: enriched.socials || {},
-      qsa: enriched.fiscal?.socios?.[0]
-        ? `${enriched.fiscal.socios[0].nome} (${enriched.fiscal.socios[0].qualificacao || "Sócio"})`
-        : null,
-      completeness: enriched.completeness,
-      contactChannels: enriched.contactChannels,
-      qualityStatus: enriched.qualityStatus,
-    };
+      if (!resolvedGoogleKey && context?.supabase && context?.userId) {
+        try {
+          const { data: conn } = await (context.supabase as any)
+            .from("b2b_connections")
+            .select("key_ciphertext")
+            .eq("user_id", context.userId)
+            .eq("provider", "google_places")
+            .maybeSingle();
+          if (conn?.key_ciphertext) {
+            resolvedGoogleKey = safeDecryptKey(conn.key_ciphertext);
+          }
+        } catch {}
+      }
+
+      const enriched = await enrichSingleLead(baseLead, {
+        forceRefresh: data.forceRefresh ?? true,
+        googleKey: resolvedGoogleKey,
+      });
+
+      const { updatedLead } = mergeSingleLeadUpdate(baseLead, enriched, {
+        now: new Date().toISOString(),
+      });
+
+      return {
+        lead: updatedLead,
+        fiscal: updatedLead.fiscal,
+        siteDiagnosis: updatedLead.siteDiagnosis,
+        phones: (updatedLead.phones || []).map((p) => p.e164 || p.raw),
+        whatsapp:
+          updatedLead.phones?.find((p) => p.whatsappLikely)?.e164 ||
+          updatedLead.contactChannels?.whatsapp ||
+          null,
+        email:
+          updatedLead.emails?.[0]?.value ||
+          updatedLead.contactChannels?.commercialEmail ||
+          null,
+        socials: updatedLead.socials || {},
+        qsa: updatedLead.fiscal?.socios?.[0]
+          ? `${updatedLead.fiscal.socios[0].nome} (${updatedLead.fiscal.socios[0].qualificacao || "Sócio"})`
+          : null,
+        completeness: updatedLead.completeness,
+        contactChannels: updatedLead.contactChannels,
+        qualityStatus: updatedLead.qualityStatus,
+        error: null,
+      };
+    } catch (err) {
+      console.error("[enrichLeadSingle] Erro ao enriquecer lead:", err);
+      return {
+        lead: baseLead,
+        fiscal: baseLead.fiscal,
+        siteDiagnosis: baseLead.siteDiagnosis,
+        phones: (baseLead.phones || []).map((p) => p.e164 || p.raw),
+        whatsapp: baseLead.contactChannels?.whatsapp || null,
+        email: baseLead.emails?.[0]?.value || baseLead.contactChannels?.commercialEmail || null,
+        socials: baseLead.socials || {},
+        qsa: null,
+        completeness: baseLead.completeness,
+        contactChannels: baseLead.contactChannels,
+        qualityStatus: baseLead.qualityStatus,
+        error: err instanceof Error ? err.message : "Falha temporária ao enriquecer lead",
+      };
+    }
   });
 
 /** Enriquecimento em lote estruturado para todas as empresas encontradas */
@@ -996,6 +1030,8 @@ export const saveDiscoveredLeads = createServerFn({ method: "POST" })
         lastVerifiedAt: raw.lastVerifiedAt ?? null,
         manualOverrides: raw.manualOverrides ?? null,
         conflicts: raw.conflicts ?? null,
+        confidenceScore: raw.confidenceScore ?? null,
+        confidenceReasons: raw.confidenceReasons ?? null,
       };
 
       const row = {
